@@ -254,6 +254,11 @@ export class SearchLayer implements Layer {
     const sg = this.sugEl;
     while (sg.firstChild) sg.removeChild(sg.firstChild);
     if (this.sugs.length) el('div', 'gl', str('queries'), sg).style.paddingLeft = '0';
+    // запросов — сколько помещается над строкой подсказок
+    const room = U.h - U.px(2.4 + (Prefs.keyHints? 2.6: 0) + 3.2) - sg.getBoundingClientRect.top;
+    const fit = Math.max(1, Math.floor(room / U.px(3)));
+    if (this.sugs.length > fit) this.sugs.length = fit;
+    if (this.si >= this.sugs.length) this.si = this.sugs.length - 1;
     for (let i = 0; i < this.sugs.length; i++) {
       const r = el('div', 'it', null, sg);
       r.style.height = '3rem';
