@@ -3,3 +3,4 @@ dist/
 out/
 *.ipk
 .cache/
+tools/.flussonic_cache/

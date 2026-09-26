@@ -153,9 +153,17 @@ function handleProxy(q, req, out) {
       body.on('data', function (c) { chunks.push(c); });
       body.on('error', function (e) { fail(out, 502, e.message); });
       body.on('end', function  {
-        var text = rewriteM3u8(Buffer.concat(chunks).toString('utf8'), finalUrl, hRaw);
+        var raw = Buffer.concat(chunks);
+        var text = raw.toString('utf8');
         var h = copyHeaders(res, extra);
         delete h['content-length'];
+        // плейлист IPTV (.m3u с #EXTINF) — как есть; адреса переписываются только в HLS (теги #EXT-X-)
+        if (text.indexOf('#EXT-X-') < 0) {
+          out.writeHead(res.statusCode, h);
+          out.end(raw);
+          return;
+        }
+        text = rewriteM3u8(text, finalUrl, hRaw);
         h['content-type'] = 'application/vnd.apple.mpegurl';
         out.writeHead(res.statusCode, h);
         out.end(text);
