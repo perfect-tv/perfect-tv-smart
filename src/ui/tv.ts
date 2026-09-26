@@ -137,7 +137,7 @@ export class Tv {
   start() {
     const self = this;
     this.repo.loadPlaylists().then(function (list) {
-      if (!list.length) { self.wizard(); return; }
+      if (!list.length) { self.devPlaylist(); return; }
       const p = self.repo.playlist(Prefs.lastPlaylist) || list[0];
       self.open(p);
       self.repo.preloadChannels();
@@ -227,6 +227,23 @@ export class Tv {
       else self.openSettings();
     }, function () { self.exitRequest(); });
     this.push(layer);
+  }
+
+  /**
+   * Для проверки в симуляторе: файл dev-playlist.txt рядом с index.html (адрес в первой строке)
+   * добавляется как первый плейлист. В сборку файл не входит — тогда обычный мастер.
+   */
+  private devPlaylist() {
+    const self = this;
+    const x = new XMLHttpRequest();
+    x.open('GET', 'dev-playlist.txt', true);
+    x.onload = function () {
+      const url = (x.responseText || '').split('\n')[0].trim();
+      if ((x.status === 200 || x.status === 0) && /^https?:\/\//.test(url)) self.repo.addPlaylist('Dev', url).then(function (p) { self.open(p); });
+      else self.wizard();
+    };
+    x.onerror = function () { self.wizard(); };
+    x.send();
   }
 
   /** Мастер первого плейлиста: адрес и имя */
