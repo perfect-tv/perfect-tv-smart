@@ -1,0 +1,7 @@
+{
+  "id": "top.rootu.perfecttv.service",
+  "description": "Локальный прокси Perfect TV",
+  "services": [
+    { "name": "top.rootu.perfecttv.service", "description": "Прокси для плейлиста, программы и потоков" }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "perfecttv-webos",
+  "version": "1.0.0",
+  "description": "Perfect TV — IPTV-плеер для LG webOS",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "dev": "node tools/build.mjs --watch",
+    "proxy": "node service/proxy.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "package": "node tools/build.mjs && ares-package -o out dist service"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "@webos-tools/cli": "^3.2.6",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "hls.js": "1.5"
+  },
+  "private": true
+}

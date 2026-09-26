@@ -1,0 +1,15 @@
+{
+  "id": "top.rootu.perfecttv",
+  "version": "1.0.0",
+  "vendor": "putilin",
+  "type": "web",
+  "main": "index.html",
+  "title": "Perfect TV",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#000000",
+  "iconColor": "#1A1B1C",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "requiredPermissions": []
+}
