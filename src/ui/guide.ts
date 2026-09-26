@@ -399,7 +399,8 @@ export class GuideLayer implements Layer {
 
   long {
     const ch = this.focused;
-    if (!ch) return;
+    // каналов нет (загружаются или ошибка) — настройки: адрес плейлиста, журнал
+    if (!ch) { this.tv.openSettings; return; }
     if (this.zone === Zone.PROGRAMS) {
       const p = this.plRows[this.plIndex];
       if (p) this.tv.openDetails(ch, new Cell(p.start, p.stop, p));
@@ -584,7 +585,9 @@ export class GuideLayer implements Layer {
       case Zone.PROGRAMS: return [['OK', str('watch')], ['←', str('hint_to_channels')], ['→', str('hint_dates')], ['↑ ↓', str('hint_programme_pick')]];
       case Zone.DATES: return [['↑ ↓', str('hint_date')], ['←', str('hint_programmes')], ['OK', str('watch')], [str('key_back'), str('hint_to_channels')]];
       case Zone.GRID: return [['OK', str('about')], ['← →', str('hint_programmes')], [str('key_back'), str('hint_to_channels')]];
-      default: return [['OK', str('watch')], ['←', str('hint_categories')], ['→', str(this.grid? 'hint_into_grid': 'hint_programme')], [str('key_hold_ok'), str('menu')]];
+      default:
+        if (!this.focused) return [[str('key_hold_ok'), str('settings')], [str('key_back'), str('exit')]];
+        return [['OK', str('watch')], ['←', str('hint_categories')], ['→', str(this.grid? 'hint_into_grid': 'hint_programme')], [str('key_hold_ok'), str('menu')]];
     }
   }
 
@@ -793,7 +796,7 @@ export class GuideLayer implements Layer {
     const list = this.channels;
     if (!list.length) {
       const cat = this.tv.catalog;
-      this.text(!cat ||!cat.channels.length? str('loading_channels'): str('no_channels'), this.padX + em, this.bodyTop + 2 * em, this.w - 2 * this.padX, 1.35, C.t(0.6));
+      this.text(this.tv.loadStatus || (!cat ||!cat.channels.length? str('no_channels'): str('no_channels')), this.padX + em, this.bodyTop + 2 * em, this.w - 2 * this.padX, 1.35, C.t(0.6));
       return;
     }
     const rows = this.visibleRows;

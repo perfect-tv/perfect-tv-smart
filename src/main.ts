@@ -1,4 +1,5 @@
 import './core/polyfills';
+import { Log } from './core/log';
 import { Net } from './core/net';
 import { Platform } from './core/platform';
 import { css } from './ui/style';
@@ -11,6 +12,8 @@ import { U } from './ui/u';
  * кроме полей ввода форм (там своя экранная клавиатура системы).
  */
 function boot() {
+  Log.install();
+  console.log('webOS', Platform.isWebOS ? Platform.version() || '?' : '-', 'screen', window.innerWidth + 'x' + window.innerHeight);
   U.init();
   const style = document.createElement('style');
   style.textContent = css();

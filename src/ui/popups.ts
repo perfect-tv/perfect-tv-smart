@@ -1,4 +1,5 @@
 import { Clock } from '../core/clock';
+import { Log } from '../core/log';
 import { str } from '../core/lang';
 import { Channel } from '../data/models';
 import { inArchive, isMissed, Reminder } from '../data/reminders';
@@ -532,3 +533,27 @@ export class FormLayer extends PopupLayer {
 }
 
 export { setText };
+
+/** Журнал приложения (последние строки консоли и ошибки): ↑/↓ — прокрутка, OK/Назад — закрыть */
+export class LogLayer extends PopupLayer {
+  private scroller: Scroller;
+  constructor(parent: HTMLElement, private onClose:  => void) {
+    super(parent, 90, 0.9);
+    this.head(null, str('log'));
+    this.scroller = new Scroller(this.win, U.h * 0.9 - U.px(6), 'rgba(30,31,32,.94)');
+    const pre = el('div', 't85', Log.lines.join('\n'), this.scroller.inner);
+    pre.style.cssText = 'font-family:monospace;font-size:1.1rem;line-height:1.5rem;white-space:pre-wrap;word-break:break-all';
+    this.scroller.scrollTo(1e9);
+    this.scroller.by(0);
+  }
+  key(name: string) {
+    const page = this.scroller.box.clientHeight - U.px(3);
+    if (name === 'up') this.scroller.by(-U.px(4.5));
+    else if (name === 'down') this.scroller.by(U.px(4.5));
+    else if (name === 'pgup') this.scroller.by(-page);
+    else if (name === 'pgdown') this.scroller.by(page);
+  }
+  wheel(dy: number) { this.scroller.by(dy > 0? U.px(4.5): -U.px(4.5)); }
+  enter { this.onClose; }
+  back { this.onClose; }
+}

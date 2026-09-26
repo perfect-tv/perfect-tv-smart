@@ -86,12 +86,14 @@ export const Net = {
     function attempt: Promise<boolean> {
       return xhr('GET', PROXY + '/ping', { timeout: 1500 }).then(function (x) {
         proxyOk = x.status === 200 && x.responseText.indexOf('"ok":true') >= 0;
+        console.log('proxy', proxyOk? 'ok': 'bad answer ' + x.status);
         proxyChecked = true;
         return proxyOk;
       }, function  {
         if (++i < tries) return sleep(500).then(attempt);
         proxyOk = false;
         proxyChecked = true;
+        console.warn('proxy absent');
         return false;
       });
     }
@@ -176,9 +178,18 @@ function checkStatus(r: Resp, opts: StreamOpts) {
   if (opts.onResponse) opts.onResponse(r);
 }
 
-/** fetch с потоком (Chromium 43+) */
+/** Promise с пределом времени: не уложился — NetError('timeout') */
+function within<T>(p: Promise<T>, ms: number, onTimeout?:  => void): Promise<T> {
+  return new Promise<T>(function (resolve, reject) {
+    const t = setTimeout(function  { if (onTimeout) onTimeout; reject(new NetError('timeout')); }, ms);
+    p.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
+  });
+}
+
+/** fetch с потоком (Chromium 43+): ответ — не дольше 30 с, пауза в данных — не дольше 60 с */
 function fetchStream(url: string, headers: { [k: string]: string }, proxied: boolean, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
-  return fetch(url, { headers: headers, cache: 'no-store' }).then(function (res) {
+  console.log('net', proxied? 'proxy': 'direct', url.slice(0, 160));
+  return within(fetch(url, { headers: headers, cache: 'no-store' }), 30000).then(function (res) {
     let st = res.status;
     // прокси возвращает статус сервера как есть; X-Status — для ответов, которые браузер мог бы подменить
     const xs = res.headers.get('X-Status');
@@ -194,7 +205,7 @@ function fetchStream(url: string, headers: { [k: string]: string }, proxied: boo
     let read = 0;
     function pump: Promise<Resp> {
       if (opts.cancelled && opts.cancelled) { try { reader.cancel; } catch (e) { /* */ } return Promise.resolve(r); }
-      return reader.read.then(function (x) {
+      return within(reader.read, 60000, function  { try { reader.cancel; } catch (e) { /* */ } }).then(function (x) {
         if (x.done) return r;
         const v = x.value as Uint8Array;
         read += v.length;
@@ -203,7 +214,9 @@ function fetchStream(url: string, headers: { [k: string]: string }, proxied: boo
       });
     }
     return pump;
-  }, function  {
+  }, function (e) {
+    console.warn('net error', url.slice(0, 120), e && (e.code || e.message || e));
+    if (e instanceof NetError) throw e;
     throw new NetError('network', 0);
   });
 }

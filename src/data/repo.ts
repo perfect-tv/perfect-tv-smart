@@ -120,9 +120,10 @@ export class Repo {
    * Обновить плейлист, затем его программу. onPartial — каналы по ходу первой загрузки.
    * Результат — null (успех) или код ошибки.
    */
-  refresh(p: Playlist, force: boolean, onPartial?: (raw: RawChannel[]) => void): Promise<string | null> {
+  refresh(p: Playlist, force: boolean, onPartial?: (raw: RawChannel[]) => void, onProgress?: (read: number, channels: number) => void): Promise<string | null> {
     const self = this;
-    return Loaders.loadPlaylist(p, force, onPartial ? function (l) { onPartial(l.slice()); } : undefined).then(function (res) {
+    console.log('refresh playlist', p.id, force ? 'force' : '');
+    return Loaders.loadPlaylist(p, force, onPartial ? function (l) { onPartial(l.slice()); } : undefined, onProgress).then(function (res) {
       if (res.notModified) {
         p.loadedAt = Clock.now();
         p.error = '';
@@ -147,6 +148,7 @@ export class Repo {
       return null;
     }, function (e) {
       const code = errorCode(e);
+      console.error('playlist failed', code, e);
       p.error = code;
       Db.put('playlists', p);
       return code;

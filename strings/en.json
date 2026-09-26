@@ -487,5 +487,9 @@
  "reset_all_warning": "Everything except the backup will be deleted. The app restarts.",
  "server_error_x": "The server responded with an error %1$s",
  "storage_error": "The app storage is not available",
- "wizard_note": "Enter the M3U/M3U8 playlist address. OK on a field opens the TV keyboard."
+ "wizard_note": "Enter the M3U/M3U8 playlist address. OK on a field opens the TV keyboard.",
+ "log": "Log",
+ "log_sub": "app messages and errors — for diagnostics",
+ "timeout_error": "The server does not respond",
+ "exit": "Exit"
 }

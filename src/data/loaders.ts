@@ -41,7 +41,7 @@ export const Loaders = {
    * Плейлист потоком: каналы копятся в памяти (onPartial — каждые 500 для первой загрузки),
    * по окончании — одна запись в IndexedDB. Ошибки — код (no_url, network, http_404, format, empty, need_service).
    */
-  loadPlaylist(p: Playlist, force: boolean, onPartial?: (list: RawChannel[], header: { [k: string]: string }) => void): Promise<{ list: RawChannel[]; header: { [k: string]: string }; notModified: boolean }> {
+  loadPlaylist(p: Playlist, force: boolean, onPartial?: (list: RawChannel[], header: { [k: string]: string }) => void, onProgress?: (read: number, channels: number) => void): Promise<{ list: RawChannel[]; header: { [k: string]: string }; notModified: boolean }> {
     if (!p.url) return Promise.reject(new NetError('no_url'));
     const list: RawChannel[] = [];
     const parser = new M3uParser(function (c) {
@@ -54,7 +54,8 @@ export const Loaders = {
     return Net.stream(p.url, {
       etag: force? undefined: p.etag || undefined,
       lastModified: force? undefined: p.lastModified || undefined,
-      onResponse: function (r) { etag = r.header('ETag'); lm = r.header('Last-Modified'); },
+      onResponse: function (r) { etag = r.header('ETag'); lm = r.header('Last-Modified'); console.log('playlist', r.status, r.proxied? 'proxy': 'direct'); },
+      onProgress: function (read) { if (onProgress) onProgress(read, list.length); },
     }, function (chunk) {
       unp.push(chunk);
       if (parser.rejected) throw new NetError('format');
@@ -66,6 +67,7 @@ export const Loaders = {
       parser.end;
       if (!parser.isM3u) throw new NetError('format');
       if (!list.length) throw new NetError('empty');
+      console.log('playlist parsed', list.length, 'channels');
       p.etag = etag;
       p.lastModified = lm;
       return { list: list, header: parser.header, notModified: false };
@@ -154,6 +156,7 @@ export const Loaders = {
       return Promise.all(tasks).then(function  { onPack; return yieldUi; });
     }
 
+    console.log('epg start', url);
     return Db.get<SourceMeta>('sources', url).then(function (old) {
       meta = old || { url: url, loadedAt: 0, loadId: 0, etag: '', lastModified: '', error: '', count: 0, status: SRC_NONE };
       meta.status = SRC_LOADING;
@@ -190,6 +193,7 @@ export const Loaders = {
           meta.error = '';
           meta.count = total;
           meta.status = SRC_READY;
+          console.log('epg done', url, total, 'programmes', parser.channels, 'channels');
           return Db.put('sources', meta);
         }).then(function  { return meta; });
       });

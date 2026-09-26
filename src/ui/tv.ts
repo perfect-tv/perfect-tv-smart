@@ -20,7 +20,7 @@ import { Layer } from './layer';
 import { Logos } from './logos';
 import { MenuItem, MenuLayer, MenuPage, MenuTile } from './menu';
 import { PinLayer } from './pin';
-import { DetailsLayer, FormLayer, HelpLayer, ListItem, ListLayer, MessageLayer, ReminderLayer } from './popups';
+import { DetailsLayer, FormLayer, HelpLayer, ListItem, ListLayer, LogLayer, MessageLayer, ReminderLayer } from './popups';
 import { ScheduleLayer } from './schedule';
 import { SearchLayer } from './search';
 import { SettingsLayer } from './settings';
@@ -98,6 +98,8 @@ export class Tv {
   private ticks = 0;
   private moreKey = '';
   private screen: Layer | null = null;
+  /** Строка о первой загрузке плейлиста (в гиде без каналов) */
+  loadStatus = '';
 
   constructor(video: HTMLVideoElement, ui: HTMLElement) {
     this.ui = ui;
@@ -151,28 +153,39 @@ export class Tv {
     this.playlist = p;
     Prefs.lastPlaylist = p.id;
     const self = this;
+    console.log('open playlist', p.id, p.channelsCount, 'channels saved');
     this.repo.loadCatalog(p).then(function (cat) {
       if (self.playlist !== p) return;
       self.catalog = cat;
       if (cat.channels.length) self.startFromLast();
       if (!cat.channels.length || self.repo.isStale(p)) self.refreshPlaylist(p, false);
       else self.repo.refreshEpg(p, false);
+    }, function (e) {
+      console.error('loadCatalog', e);
+      self.showError('storage');
     });
   }
 
   private refreshPlaylist(p: Playlist, force: boolean) {
     const self = this;
     const first = !this.catalog || !this.catalog.channels.length;
-    if (first) this.toast.show(str('loading_channels'), 60000);
+    if (first) { this.loadStatus = str('loading_channels'); this.guide.redraw(); }
     this.repo.refresh(p, force, first ? function (raw) {
       // первая загрузка: каналы видны по ходу разбора
       if (self.playlist !== p) return;
       self.catalog = self.repo.catalogOf(p, raw);
       if (self.layers.indexOf(self.guide) >= 0) self.guide.reload(); else self.openGuide();
+    } : undefined, first ? function (read, n) {
+      self.loadStatus = str('loading_channels') + '  ' + Fmt.size(read) + (n ? ' · ' + plural('channels', n) : '');
+      self.guide.redraw();
     } : undefined).then(function (err) {
       if (self.playlist !== p) return;
-      if (first) self.toast.hide();
+      self.loadStatus = '';
       if (err) { if (first || !self.catalog || !self.catalog.channels.length) self.showError(err); else self.toast.show(self.errorText(err)); return; }
+    }, function (e) {
+      console.error('refresh', e);
+      self.loadStatus = '';
+      self.showError('storage');
     });
   }
 
@@ -187,7 +200,7 @@ export class Tv {
       if (cur) { const c = cat.byKey[cur.key]; if (c) self.state.channel = c; }
       if (self.layers.indexOf(self.guide) >= 0) self.guide.reload();
       if (first && !self.state.channel) self.startFromLast();
-    });
+    }, function (e) { console.error('reload catalog', e); self.showError('storage'); });
   }
 
   private startFromLast() {
@@ -214,6 +227,7 @@ export class Tv {
     if (code === 'empty') return str('the_playlist_has_no_channels');
     if (code === 'need_service') return str('need_service');
     if (code === 'storage') return str('storage_error');
+    if (code === 'timeout') return str('timeout_error');
     if (code.indexOf('http_') === 0) return str('server_error_x', code.substring(5));
     return code;
   }
@@ -502,6 +516,7 @@ export class Tv {
     const h = ch.headers();
     let url = this.lastUrl;
     if (this.viaProxy || Net.wantProxy(h)) url = Net.proxyUrl(url, h);
+    console.log('play', ch.name, this.state.archive ? 'archive' : 'live', url.slice(0, 160));
     this.playback.play(url, {
       fromStart: this.state.archive !== null,
       native: this.nativeFallback || Prefs.hlsEngine === 1,
@@ -608,7 +623,7 @@ export class Tv {
   private onStreamError(kind: 'network' | 'media' | 'live', detail: string) {
     const ch = this.state.channel;
     if (!ch) return;
-    console.warn('play error', kind, detail, ch.name);
+    console.warn('play error', kind, detail, ch.name, this.playback.engine);
     // прямой запрос не прошёл (CORS, заголовки) — через прокси
     if (kind === 'network' && !this.viaProxy && Net.proxyAvailable && Prefs.proxyMode !== 2) {
       this.viaProxy = true;
@@ -996,6 +1011,14 @@ export class Tv {
   }
 
   openReminders(ch: Channel | null) { this.openSchedule(ch, 1); }
+
+  /** Журнал (Настройки → Данные) */
+  openLog() {
+    const self = this;
+    let layer: LogLayer | null = null;
+    layer = new LogLayer(this.ui, function () { self.remove(layer!); });
+    this.push(layer);
+  }
 
   openHelp() {
     const self = this;

@@ -438,6 +438,7 @@ export class SettingsLayer implements Layer {
     const self = this;
     const tv = this.tv;
     return [
+      { name: str('log'), desc: str('log_sub'), action: function  { tv.openLog; } },
       { name: str('logo_cache'), desc: str('logo_cache_sub_webos'), action: function  { Logos.clearFailed; tv.toast.show(str('logo_cache_cleared')); } },
       { name: str('clear_programme'), desc: str('clear_programme_sub'), action: function  {
         Promise.all([Db.deleteRange('prog', IDBKeyRange.lowerBound([''])), Db.deleteRange('sources', IDBKeyRange.lowerBound('')), Db.deleteRange('epgch', IDBKeyRange.lowerBound(['']))]).then(function  {

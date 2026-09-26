@@ -33,7 +33,9 @@ export function open: Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('map')) db.createObjectStore('map', { keyPath: ['pid', 's'] });
     };
     req.onsuccess = function  { resolve(req.result); };
-    req.onerror = function  { reject(req.error); };
+    req.onerror = function  { console.error('indexedDB open', req.error); reject(req.error); };
+    (req as any).onblocked = function  { console.warn('indexedDB blocked'); };
+    setTimeout(function  { reject(new Error('indexedDB open timeout')); }, 15000);
   });
   return dbp;
 }
