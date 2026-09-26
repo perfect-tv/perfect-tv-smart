@@ -8,7 +8,7 @@
     "proxy": "node service/proxy.js",
     "test": "vitest run",
     "typecheck": "tsc -p .",
-    "package": "node tools/build.mjs && ares-package -o out dist service"
+    "package": "node tools/build.mjs && node -e \"require('fs').rmSync('dist/dev-playlist.txt',{force:true})\" && ares-package -o out dist service"
   },
   "type": "commonjs",
   "devDependencies": {
