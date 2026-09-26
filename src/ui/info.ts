@@ -74,10 +74,10 @@ export class InfoPanel {
     root.id = 'info';
     root.style.display = 'none';
     this.el = root;
-    const scrim = el('div', 'scrim', null, root);
+    // затемнение — фоном самой панели: дочерний слой с z-index −1 поверх видео не рисуется
     const fade = 'rgba(8,9,11,0) 0, rgba(8,9,11,.53) 2.8rem, rgba(8,9,11,.91) 5.6rem, rgba(8,9,11,.97) 100%';
-    scrim.style.background = '-webkit-linear-gradient(top,' + fade + ')';
-    scrim.style.background = 'linear-gradient(to bottom,' + fade + ')';
+    root.style.background = '-webkit-linear-gradient(top,' + fade + ')';
+    root.style.background = 'linear-gradient(to bottom,' + fade + ')';
 
     const top = el('div', 'top', null, root);
     this.logo = el('div', 'logo', null, top);

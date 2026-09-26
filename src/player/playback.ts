@@ -30,7 +30,7 @@ export interface PlaybackListener {
   onTracks: void;
 }
 
-function isHlsUrl(url: string): boolean {
+export function isHlsUrl(url: string): boolean {
   const path = url.split('?')[0].split('#')[0];
   return /\.m3u8?$/i.test(path) || /\/(index|playlist|mono|video)(-[^\/]*)?\.m3u8/i.test(url) || /[?&](type|format)=m3u8/i.test(url);
 }

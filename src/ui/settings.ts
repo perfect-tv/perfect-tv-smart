@@ -55,7 +55,7 @@ export class SettingsLayer implements Layer {
   private sources: { [url: string]: SourceMeta } = {};
 
   constructor(private tv: Tv, private onClose: (changed: boolean) => void) {
-    this.el = el('div', 'settings');
+    this.el = el('div', 'settings', null, tv.ui);
     this.nav = el('div', 'nav', null, this.el);
     this.pageEl = el('div', 'page', null, this.el);
     this.head = el('div', 'h', '', this.pageEl);

@@ -50,7 +50,7 @@ export class SearchLayer implements Layer {
   private status: HTMLElement;
 
   constructor(private tv: Tv, query: string, private onClose:  => void) {
-    this.el = el('div', 'search');
+    this.el = el('div', 'search', null, tv.ui);
     this.kbLang = lang === 'en'? EN: RU;
     this.textLang = this.kbLang;
     const left = el('div', 'abs', null, this.el);

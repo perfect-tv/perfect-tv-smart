@@ -64,7 +64,8 @@ export class ScheduleLayer implements Layer {
   private onRem:  => void;
 
   constructor(private tv: Tv, private ch: Channel | null, view: number, private onClose:  => void) {
-    this.el = el('div', 'overlay sched');
+    // сразу в документе: позиции строк нужны для прокрутки к идущей передаче
+    this.el = el('div', 'overlay sched', null, tv.ui);
     const win = el('div', 'win', null, this.el);
     this.win = win;
     const W = U.w - 2 * U.px(4), H = U.h - 2 * U.px(2.4);
@@ -314,8 +315,7 @@ export class ScheduleLayer implements Layer {
     if (!r || r.sep) return;
     el('div', 'tm', r.range || '', p);
     el('div', 'nm', r.title, p);
-    const d = el('div', 'ds', r.desc || '', p);
-    d.style.maxHeight = (this.panel.clientHeight - U.px(10)) + 'px';
+    el('div', 'ds', r.desc || '', p);
     const ok = el('div', 'ok row', null, p);
     hintRow(ok, [['OK', r.action || '']]);
   }

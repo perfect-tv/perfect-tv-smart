@@ -9,7 +9,7 @@ import { CatchupUrl } from '../data/catchup';
 import { Channel, Playlist } from '../data/models';
 import { inArchive, isMissed, Reminder, Reminders } from '../data/reminders';
 import { Repo } from '../data/repo';
-import { Playback } from '../player/playback';
+import { isHlsUrl, Playback } from '../player/playback';
 import { Cell } from './cells';
 import { el } from './dom';
 import { Fmt } from './fmt';
@@ -488,7 +488,8 @@ export class Tv {
     this.playback.play(url, {
       fromStart: this.state.archive !== null,
       native: this.nativeFallback || Prefs.hlsEngine === 1,
-      forceHls: this.forceHls,
+      // тип — по исходной ссылке: у ссылки через прокси (/p?u=…) расширения нет
+      forceHls: this.forceHls || isHlsUrl(this.lastUrl),
     });
   }
 
@@ -568,7 +569,8 @@ export class Tv {
     const ws = pb.windowStartTimeMs;
     if (ws === null) return;
     const target = a.start * 1000 - ws;
-    if (Math.abs(w! / 1000 - a.start) > 8 && target >= 0 && target < pb.windowDurationMs - 5000) {
+    // у «скользящего» окна со сдвигом (offset) нужный момент — почти у края окна: запас меньше, чем при перемотке
+    if (Math.abs(w! / 1000 - a.start) > 8 && target >= 0 && target < pb.windowDurationMs - 2500) {
       console.log('archive: start ' + Math.round(w! / 1000 - a.start) + ' s off, seek to start');
       this.watch = null;
       pb.seekTo(target);
