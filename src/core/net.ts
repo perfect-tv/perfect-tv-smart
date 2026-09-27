@@ -124,8 +124,8 @@ export const Net = {
     const via = Net.wantProxy(opts.headers);
     const first = via? Net.streamProxy(url, opts, onChunk): Net.streamDirect(url, opts, onChunk);
     return first.then(null, function (e: any) {
-      // CORS и прочие сетевые ошибки прямого запроса — второй заход через прокси
-      if (!via && proxyOk && Prefs.proxyMode!== 2 && e instanceof NetError && (e.code === 'network' || e.code === 'need_service')) {
+      // CORS и прочие сетевые ошибки прямого запроса — второй заход через прокси (он перепроверит сервис)
+      if (!via && Prefs.proxyMode!== 2 && e instanceof NetError && (e.code === 'network' || e.code === 'need_service')) {
         return Net.streamProxy(url, opts, onChunk);
       }
       throw e;
@@ -141,7 +141,14 @@ export const Net = {
   },
 
   streamProxy(url: string, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
-    if (!proxyOk) return Promise.reject(new NetError('need_service'));
+    // сервис мог подняться позже первой проверки (Node на слабом ТВ стартует долго) — проверить ещё раз
+    if (!proxyOk) {
+      if (typeof document === 'undefined') return Promise.reject(new NetError('need_service'));
+      return Net.checkProxy.then(function (ok) {
+        if (!ok) throw new NetError('need_service');
+        return Net.streamProxy(url, opts, onChunk);
+      });
+    }
     if (hasStreams) {
       const h: { [k: string]: string } = {};
       if (opts.etag) h['If-None-Match'] = opts.etag;
@@ -168,6 +175,9 @@ export const Net = {
   },
 
   get checked { return proxyChecked; },
+
+  /** Воркер: состояние прокси — от основного потока */
+  setProxy(ok: boolean) { proxyOk = ok; proxyChecked = true; },
 };
 
 function checkStatus(r: Resp, opts: StreamOpts) {

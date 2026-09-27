@@ -17,10 +17,10 @@ function copy(from, to) {
   fs.copyFileSync(from, to);
 }
 
-async function build {
-  const t0 = Date.now;
+/** Один бандл: esbuild (ES2017) → tsc (ES5) → сжатие → проверка, что это ES5 */
+async function bundle(entry) {
   const res = await esbuild.build({
-    entryPoints: [path.join(root, 'src/main.ts')],
+    entryPoints: [path.join(root, entry)],
     bundle: true,
     format: 'iife',
     target: 'es2017',
@@ -31,8 +31,7 @@ async function build {
     define: { DEV: dev? 'true': 'false' },
     logLevel: 'warning',
   });
-  const code = res.outputFiles[0].text;
-  const out = ts.transpileModule(code, {
+  const out = ts.transpileModule(res.outputFiles[0].text, {
     compilerOptions: {
       target: ts.ScriptTarget.ES5,
       module: ts.ModuleKind.None,
@@ -49,21 +48,29 @@ async function build {
     const min = await esbuild.transform(js, { minify: true, target: 'es5', legalComments: 'none' });
     js = min.code;
   }
-  // проверка: в бандле только ES5
   try {
     acorn.parse(js, { ecmaVersion: 5, sourceType: 'script' });
   } catch (e) {
     const lines = js.split('\n');
     const ln = e.loc? e.loc.line: 0;
-    throw new Error('Бандл не ES5: ' + e.message + '\n' + (lines[ln - 1] || '').slice(0, 200));
+    throw new Error(entry + ': бандл не ES5: ' + e.message + '\n' + (lines[ln - 1] || '').slice(0, 200));
   }
+  return js;
+}
+
+async function build {
+  const t0 = Date.now;
+  const app = await bundle('src/main.ts');
+  // загрузка программы — в воркере (src/worker/epg.ts)
+  const worker = await bundle('src/worker/epg.ts');
   fs.mkdirSync(dist, { recursive: true });
-  fs.writeFileSync(path.join(dist, 'app.js'), js);
+  fs.writeFileSync(path.join(dist, 'app.js'), app);
+  fs.writeFileSync(path.join(dist, 'epg-worker.js'), worker);
   copy(path.join(root, 'node_modules/hls.js/dist/hls.min.js'), path.join(dist, 'hls.min.js'));
   copy(path.join(root, 'src/index.html'), path.join(dist, 'index.html'));
   copy(path.join(root, 'appinfo.json'), path.join(dist, 'appinfo.json'));
   for (const f of fs.readdirSync(path.join(root, 'assets'))) copy(path.join(root, 'assets', f), path.join(dist, f));
-  console.log(`dist/app.js ${(js.length / 1024).toFixed(0)} КБ, ${Date.now - t0} мс`);
+  console.log(`dist/app.js ${(app.length / 1024).toFixed(0)} КБ, epg-worker.js ${(worker.length / 1024).toFixed(0)} КБ, ${Date.now - t0} мс`);
 }
 
 if (watch) {

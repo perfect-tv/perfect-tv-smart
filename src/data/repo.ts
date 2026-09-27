@@ -4,6 +4,7 @@ import { Prefs } from '../core/prefs';
 import { Bus } from './bus';
 import { Catalog } from './catalog';
 import { Db, prefixRange } from './db';
+import { EpgWorker } from './epgworker';
 import { errorCode, Loaders, MapRecord, SourceMeta, SRC_ERROR, SRC_READY, WantedSet } from './loaders';
 import { RawChannel } from './m3u';
 import { Channel, epgUrlsOf, Playlist, Programme } from './models';
@@ -169,12 +170,16 @@ export class Repo {
         const fresh = m && m.status === SRC_READY && Clock.now() - m.loadedAt < maxAge;
         if (fresh && !force) { delete self.queued[url]; return; }
         self.epgQueue.push(function () {
-          return Loaders.loadEpg(url, self.wantedFor(url), self.maxArchiveDays, self.langs(), force,
-            function (read, total, n) {
-              self.progress = { url: url, read: read, total: total, programmes: n };
-              Bus.emit('progress', self.progress);
-            },
-            function () { self.invalidate(url, false); }).then(function () {
+          const onProgress = function (read: number, total: number, n: number) {
+            self.progress = { url: url, read: read, total: total, programmes: n };
+            Bus.emit('progress', self.progress);
+          };
+          const onPack = function () { self.invalidate(url, false); };
+          // в воркере (основной поток свободен для гида и плеера); нельзя — здесь же
+          return EpgWorker.available().then(function (ok) {
+            if (ok) return EpgWorker.load(url, self.wantedFor(url), self.maxArchiveDays, self.langs(), force, onProgress, onPack);
+            return Loaders.loadEpg(url, self.wantedFor(url), self.maxArchiveDays, self.langs(), force, onProgress, onPack);
+          }).then(function () {
             delete self.queued[url];
             self.progress = null;
             self.invalidate(url, true);

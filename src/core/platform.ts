@@ -61,8 +61,11 @@ export const Platform = {
   startService() {
     if (serviceStarted || !isWebOS) return;
     serviceStarted = true;
+    console.log('service: luna start');
     luna('luna://' + SERVICE_ID + '/start', { subscribe: true }, function (r) {
-      if (!r.returnValue) console.warn('service', r.errorText || r.error);
+      // ответ сервиса: порт прокси или ошибка (нет сервиса, не открылся порт)
+      if (r.returnValue) console.log('service: started, port', r.port);
+      else console.warn('service: failed', r.errorCode || '', r.errorText || r.error || JSON.stringify(r));
     });
   },
 

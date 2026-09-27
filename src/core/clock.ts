@@ -18,4 +18,5 @@ export const Clock = {
   },
   /** Для тестов */
   setOffset(ms: number) { offsetMs = ms; },
+  get offset() { return offsetMs; },
 };
