@@ -67,6 +67,9 @@ export const Platform = {
       if (r.returnValue) console.log('service: started, port', r.port);
       else console.warn('service: failed', r.errorCode || '', r.errorText || r.error || JSON.stringify(r));
     });
+    // в журнал: отвечает ли сервис без подписки; модель и версия webOS
+    luna('luna://' + SERVICE_ID + '/ping', {}, function (r) { console.log('service: ping', JSON.stringify(r)); });
+    luna('luna://com.webos.service.tv.systemproperty/getSystemInfo', { keys: ['modelName', 'sdkVersion', 'firmwareVersion'] }, function (r) { console.log('system', JSON.stringify(r)); });
   },
 
   /** Выход: на ТВ — в лаунчер, в браузере — закрыть вкладку */
