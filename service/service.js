@@ -42,6 +42,8 @@ function release() {
 
 service.register('start', function (message) {
   console.log('Perfect TV proxy: start request');
+  // UA браузера ТВ — для запросов, которые сервис делает сам (тот же, что у прямых запросов)
+  if (message.payload && message.payload.ua) proxy.setUserAgent(message.payload.ua);
   // Важно: веб-приложение подписано на Luna, даже если Node на телевизоре не
   // имеет права слушать TCP-порт. Сервис обязан остаться живым для /stream*.
   if (message.isSubscription && !subs[message.uniqueToken]) {

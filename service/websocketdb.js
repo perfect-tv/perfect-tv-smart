@@ -1,8 +1,8 @@
-/* WebSocket RFC6455 transport to SQLite3. Node 0.12 / ES5, no npm packages. */
+/* WebSocket (RFC6455) к хранилищу приложения (filekv.js) и разбору программы (epgrunner.js). Node 0.12 / ES5, без npm. */
 'use strict';
 var crypto = require('crypto');
 var url = require('url');
-var sqlite = require('./sqlitekv.js');
+var sqlite = require('./filekv.js');
 var MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 var MAX_MESSAGE = 4 * 1024 * 1024;
 function allowed(origin) {
@@ -42,7 +42,7 @@ function handle(req, socket, head) {
     try { msg = JSON.parse(body); }
     catch (e) { return answer(null, new Error('bad JSON')); }
     if (!msg || typeof msg.id !== 'number' || typeof msg.op !== 'string') return answer(null, new Error('bad request'));
-    var handler = /^epg(Start|Status|Rematch)$/.test(msg.op) ? require('./epgservice.js') : sqlite;
+    var handler = /^epg(Start|Status|Rematch)$/.test(msg.op) ? require('./epgrunner.js') : sqlite;
     handler.dispatch(msg.op, msg, function (err, result) { answer(msg.id, err, result); });
   }
   function take(data) {

@@ -49,6 +49,14 @@ function parseHeaders(h) {
 }
 
 /** Запрос с редиректами; cb(err, res, finalUrl) */
+/**
+ * User-Agent по умолчанию — тот же, что у браузера телевизора (приложение сообщает его через /ua
+ * при запуске): иначе провайдер видит в запросах через прокси и напрямую два разных устройства,
+ * а многие ограничивают их число. Свой UA канала из плейлиста важнее.
+ */
+var defaultUA = 'Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36';
+function setUserAgent(ua) { if (typeof ua === 'string' && ua.length > 10 && ua.length < 1000) defaultUA = ua; }
+
 function request(url, headers, cb, depth) {
   depth = depth || 0;
   var u;
@@ -58,7 +66,7 @@ function request(url, headers, cb, depth) {
   var h = {};
   var k;
   for (k in headers) if (headers.hasOwnProperty(k)) h[k] = headers[k];
-  if (!hasHeader(h, 'user-agent')) h['User-Agent'] = 'PerfecktTV';
+  if (!hasHeader(h, 'user-agent')) h['User-Agent'] = defaultUA;
   if (!hasHeader(h, 'accept-encoding')) h['Accept-Encoding'] = 'gzip';
   var opts = {
     protocol: u.protocol, hostname: u.hostname, port: u.port, path: u.path, method: 'GET', headers: h,
@@ -288,6 +296,7 @@ function handler(req, out) {
   if (req.method === 'OPTIONS') { out.writeHead(204, cors({})); return out.end; }
   switch (u.pathname) {
     case '/ping': out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true, v: VERSION }));
+    case '/ua': setUserAgent(q.v); out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true }));
     case '/qr/new': return qr.create(function (err, result) { qr.json(out, err? 503: 200, err? { returnValue: false, error: err.message || String(err) }: result); });
     case '/qr/status': return qr.json(out, 200, qr.status(q.token));
     case '/qr/cancel': qr.cancel(q.token); return qr.json(out, 200, { returnValue: true });
@@ -332,7 +341,7 @@ function start(port, cb) {
 // Те же HTTP-клиент и распаковка используются транспортом Luna (когда webOS
 // запрещает открыть локальный HTTP-порт). Не экспортируем сервер наружу.
 module.exports = { start: start, PORT: PORT, rewriteM3u8: rewriteM3u8,
-  request: request, bodyOf: bodyOf };
+  request: request, bodyOf: bodyOf, setUserAgent: setUserAgent };
 
 if (require.main === module) {
   var p = parseInt(process.argv[2], 10) || PORT;

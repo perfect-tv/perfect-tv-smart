@@ -56,7 +56,7 @@ function boot() {
   Net.init().then(function (ok) {
     console.log('service transport', ok ? 'HTTP localhost' : Net.lunaAvailable ? 'Luna streaming' : 'unavailable');
     return Storage2.bootstrap().then(function (sqlReady) {
-      console.log('storage transport', sqlReady ? 'SQLite3 WebSocket' : 'legacy fallback');
+      console.log('storage transport', sqlReady ? 'service files (WebSocket)' : 'legacy fallback');
       Prefs.reload();
       return Db.migrate();
     });

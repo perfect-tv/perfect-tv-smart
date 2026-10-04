@@ -7,7 +7,10 @@
 var BufferClass = Buffer;
 var zlib = require('zlib');
 var proxy = require('./proxy.js');
-var sqlite = require('./sqlitekv.js');
+// хранилище: в сервисе — файлы (filekv.js); в дочернем процессе разбора — запросы к родителю (epg-child.js)
+var backend = null;
+var sqlite = { dispatch: function (op, q, cb) { (backend || (backend = require('./filekv.js'))).dispatch(op, q, cb); } };
+function setBackend(b) { backend = b; }
 var jobs = {};
 var activeUrl = '';
 var seq = 0;
@@ -358,4 +361,4 @@ function dispatch(op, q, cb) {
   }
   cb(new Error('unknown EPG operation'));
 }
-module.exports = { dispatch: dispatch, rematch: rematch, matching: matching };
+module.exports = { dispatch: dispatch, rematch: rematch, matching: matching, setBackend: setBackend };

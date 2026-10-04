@@ -106,6 +106,8 @@ export const Net = {
       return xhr('GET', PROXY + '/ping', { timeout: 1500 }).then(function (x) {
         proxyOk = x.status === 200 && x.responseText.indexOf('"ok":true') >= 0;
         console.log('proxy', proxyOk? 'ok': 'bad answer ' + x.status);
+        // UA браузера ТВ — сервису: им он подписывает запросы, которые делает сам (программа, Luna-поток)
+        if (proxyOk && typeof navigator!== 'undefined') xhr('GET', PROXY + '/ua?v=' + encodeURIComponent(navigator.userAgent), { timeout: 3000 }).then(null, function  { /* */ });
         proxyChecked = true;
         if (proxyOk) return true;
         return checkLuna.then(function  { return false; });
@@ -122,8 +124,14 @@ export const Net = {
 
   /** Адрес через прокси с заголовками */
   proxyUrl(url: string, headers?: { [k: string]: string } | null): string {
+    // User-Agent — тот же, что у прямых запросов браузера ТВ (провайдеры считают устройства по UA);
+    // свой UA канала из плейлиста важнее
+    const h: { [k: string]: string } = {};
+    let hasUa = false;
+    if (headers) for (const k in headers) { h[k] = headers[k]; if (k.toLowerCase === 'user-agent') hasUa = true; }
+    if (!hasUa && typeof navigator!== 'undefined' && navigator.userAgent) h['User-Agent'] = navigator.userAgent;
     let u = PROXY + '/p?u=' + encodeURIComponent(url);
-    if (headers && Object.keys(headers).length) u += '&h=' + encodeURIComponent(JSON.stringify(headers));
+    if (Object.keys(h).length) u += '&h=' + encodeURIComponent(JSON.stringify(h));
     return u;
   },
 

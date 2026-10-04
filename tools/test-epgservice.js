@@ -10,7 +10,7 @@ process.env.PERFECTTV_DATA_DIR = root;
 // Exercise the TextDecoder shim used by Node 0.12 on older webOS.
 global.TextDecoder = undefined;
 var epg = require('../service/epgservice');
-var sqlite = require('../service/sqlitekv');
+var sqlite = require('../service/filekv');
 var day = new Date();
 function xmlTime(delta) {
   var d = new Date(Date.now() + delta * 1000);
@@ -123,7 +123,7 @@ server.listen(0,'127.0.0.1',async function(){
     });
     var wsMap=await call('get',{store:'map',key:[9,url]});
     assert(wsMap.record);
-    console.log('PASS EPG Node service: gzip+deflate/stored zip, empty, cp1251, matching, 60 events, SQLite, ETag 304, rematch+WebSocket', fs.statSync(path.join(root,'perfecttv.sqlite3')).size, 'bytes',calls,'requests');
+    console.log('PASS EPG Node service: gzip+deflate/stored zip, empty, cp1251, matching, 60 events, files, ETag 304, rematch+WebSocket', calls, 'requests');
     server.close();
     process.exit(0);
   } catch(e) { console.error('FAIL EPG service',e.stack||e);server.close();process.exit(1); }

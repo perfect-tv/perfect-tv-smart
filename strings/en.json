@@ -505,8 +505,8 @@
  "playlist_qr_no_http": "The Luna service works, but the TV does not allow a local HTTP port. QR input is unavailable; enter the playlist URL manually.",
  "playlist_qr_exists": "Playlist with this address is already added",
  "playlist_qr_save_error": "Failed to save the playlist",
- "sqlite_storage": "SQLite3 database (WebSocket)",
- "sqlite_storage_sub": "All data stored in the Node service, without browser storage quota; OK to recheck",
+ "sqlite_storage": "App storage (service files)",
+ "sqlite_storage_sub": "All data is kept by the app service in files, without the browser storage quota; OK to recheck",
  "sqlite_ready": "Connected",
- "sqlite_not_ready": "Unavailable (legacy storage)"
+ "sqlite_not_ready": "Unavailable"
 }

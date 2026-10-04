@@ -98,7 +98,7 @@ export const Platform = {
     if (serviceStarted || !isWebOS) return;
     serviceStarted = true;
     console.log('service: luna start');
-    luna('luna://' + SERVICE_ID + '/start', { subscribe: true }, function (r) {
+    luna('luna://' + SERVICE_ID + '/start', { subscribe: true, ua: typeof navigator !== 'undefined' ? navigator.userAgent : '' }, function (r) {
       // ответ сервиса: порт прокси или ошибка (нет сервиса, не открылся порт)
       if (r.returnValue) {
         console.log('service: Luna started, Node', r.node || '?', 'HTTP', r.proxyReady ? 'ready' : 'unavailable');

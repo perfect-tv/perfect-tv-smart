@@ -85,8 +85,8 @@ function connect(): Promise<boolean> {
     ws.onopen = function () {
       socket = ws; ready = true;
       raw('status').then(function (state) {
-        if (state.backend !== 'SQLite3') { complete(false); ws.close(); return; }
-        console.log('sqlite websocket ready', state.backend, state.entries);
+        if (state.backend !== 'files' && state.backend !== 'SQLite3') { complete(false); ws.close(); return; }
+        console.log('storage ready', state.backend, state.entries);
         complete(true);
       }, function (e) { console.warn('sqlite status', e); complete(false); ws.close(); });
     };
