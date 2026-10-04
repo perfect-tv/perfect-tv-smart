@@ -1,8 +1,10 @@
 import { Clock } from '../core/clock';
 import { Net, NetError } from '../core/net';
 import { Db, prefixRange } from './db';
+import { packProgramme } from './compact';
 import { M3uParser, RawChannel, epgUrls } from './m3u';
 import { EpgMatcher } from './matcher';
+import { SocketDb } from './socketdb';
 import { Playlist } from './models';
 import { Unpacker } from './streams';
 import { EpgChannelRaw, EpgProgramme, XmltvParser } from './xmltv';
@@ -30,7 +32,15 @@ export interface WantedSet { pid: number; channels: Wanted[] }
 /** Запись сопоставления: ключ канала → [xml_id, иконка] */
 export interface MapRecord { pid: number; s: string; m: { [key: string]: [string, string] } }
 
+export function isQuotaError(e: any): boolean {
+  if (!e) return false;
+  const name = String(e.name || '');
+  const message = String(e.message || '');
+  return name === 'QuotaExceededError' || message.indexOf('QuotaExceededError') >= 0 || (e.error && isQuotaError(e.error));
+}
+
 export function errorCode(e: any): string {
+  if (isQuotaError(e)) return 'storage';
   if (e instanceof NetError) return e.code;
   if (e && e.message === 'format_xz') return 'format';
   return 'network';
@@ -147,7 +157,7 @@ export const Loaders = {
       const tasks: Promise<void>[] = [];
       if (epgChannels.length) { tasks.push(Db.putAll('epgch', epgChannels.splice(0, epgChannels.length))); }
       if (packs.length && (final || pending >= 3000)) {
-        tasks.push(Db.putAll('prog', packs));
+        tasks.push(Db.putAll('prog', packs.map(packProgramme)));
         packs = [];
         pending = 0;
         tasks.push(Promise.all(maps.map(function (m) { return Db.put('map', m); })).then(function  { /* */ }));
@@ -210,7 +220,9 @@ export const Loaders = {
 
   /** Пересопоставить каналы плейлистов с уже загруженным источником (плейлист перезагружен, 304) */
   rematch(url: string, wanted: WantedSet[]): Promise<void> {
-    return Db.all<any>('epgch', prefixRange([url])).then(function (list) {
+    return SocketDb.available.then(function (active) {
+      if (active) return SocketDb.epgRematch(url, wanted);
+      return Db.all<any>('epgch', prefixRange([url])).then(function (list) {
       if (!list.length) return;
       const matcher = new EpgMatcher;
       const icons: { [id: string]: string } = {};
@@ -230,6 +242,7 @@ export const Loaders = {
         recs.push({ pid: wanted[i].pid, s: url, m: m });
       }
       return Db.putAll('map', recs);
+      });
     });
   },
 };

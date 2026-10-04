@@ -2,10 +2,11 @@ import { Clock } from '../core/clock';
 import { Net } from '../core/net';
 import { Prefs } from '../core/prefs';
 import { SourceMeta, WantedSet } from './loaders';
+import { FileDb } from './filedb';
 
 /**
  * Клиент воркера программы (src/worker/epg.ts). Воркер запускается из файла epg-worker.js
- * рядом с index.html; не вышло (file:// без воркеров, нет IndexedDB в воркере на старых webOS) —
+ * рядом с index.html; не вышло (file:// без воркеров, нет WebSocket в воркере на старых webOS) —
  * available() отвечает false, и загрузка идёт в основном потоке.
  */
 interface Job { onProgress: (read: number, total: number, n: number) => void; onPack: () => void; resolve: (m: SourceMeta | null) => void }
@@ -41,7 +42,7 @@ function start() {
     const m = e.data;
     if (m.type === 'pong') {
       clearTimeout(t);
-      if (!m.ok) console.warn('epg worker: no IndexedDB', m.error);
+      if (!m.ok) console.warn('epg worker: no SQLite WebSocket', m.error);
       else console.log('epg worker ok');
       finish(!!m.ok);
       return;
@@ -54,8 +55,8 @@ function start() {
     const j = jobs[m.id];
     if (!j) return;
     if (m.type === 'progress') j.onProgress(m.read, m.total, m.programmes);
-    else if (m.type === 'pack') j.onPack();
-    else if (m.type === 'done') { delete jobs[m.id]; j.resolve(m.meta); }
+    else if (m.type === 'pack') { FileDb.resetStatus(); j.onPack(); }
+    else if (m.type === 'done') { FileDb.resetStatus(); delete jobs[m.id]; j.resolve(m.meta); }
   };
   worker.postMessage({ type: 'ping' });
 }

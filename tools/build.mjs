@@ -61,16 +61,27 @@ async function bundle(entry) {
 async function build {
   const t0 = Date.now;
   const app = await bundle('src/main.ts');
-  // загрузка программы — в воркере (src/worker/epg.ts)
-  const worker = await bundle('src/worker/epg.ts');
+  // XMLTV + matching run inside the webOS Node service. CommonJS, ES5 only.
+  const serviceCode = await esbuild.build({
+    entryPoints: [path.join(root, 'src/service/epg-entry.ts')], bundle: true,
+    platform: 'node', format: 'cjs', target: 'es2017', write: false,
+    minify: false, legalComments: 'none', logLevel: 'warning',
+  });
+  const serviceEs5 = ts.transpileModule(serviceCode.outputFiles[0].text, {
+    compilerOptions: { target: ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS,
+      downlevelIteration: true, removeComments:!dev }, fileName: 'epg-parser.js',
+  }).outputText;
+  acorn.parse(serviceEs5, { ecmaVersion: 5, sourceType: 'script' });
+  fs.writeFileSync(path.join(root, 'service/epg-parser.js'), serviceEs5);
   fs.mkdirSync(dist, { recursive: true });
   fs.writeFileSync(path.join(dist, 'app.js'), app);
-  fs.writeFileSync(path.join(dist, 'epg-worker.js'), worker);
+  // EPG is parsed by the Node service; remove the legacy browser Worker.
+  fs.rmSync(path.join(dist, 'epg-worker.js'), { force: true });
   copy(path.join(root, 'node_modules/hls.js/dist/hls.min.js'), path.join(dist, 'hls.min.js'));
   copy(path.join(root, 'src/index.html'), path.join(dist, 'index.html'));
   copy(path.join(root, 'appinfo.json'), path.join(dist, 'appinfo.json'));
   for (const f of fs.readdirSync(path.join(root, 'assets'))) copy(path.join(root, 'assets', f), path.join(dist, f));
-  console.log(`dist/app.js ${(app.length / 1024).toFixed(0)} КБ, epg-worker.js ${(worker.length / 1024).toFixed(0)} КБ, ${Date.now - t0} мс`);
+  console.log(`dist/app.js ${(app.length / 1024).toFixed(0)} KB, Node epg-parser.js ${(serviceEs5.length / 1024).toFixed(0)} KB, ${Date.now - t0} ms`);
 }
 
 if (watch) {

@@ -7,10 +7,10 @@ import { Loaders } from '../data/loaders';
 
 /**
  * Воркер загрузки программы (§5): сеть, распаковка, разбор XMLTV и запись пачек
- * в IndexedDB — вне основного потока, чтобы гид и плеер не подтормаживали на слабых ТВ.
+ * в SQLite3 по WebSocket — вне основного потока, чтобы гид и плеер не подтормаживали на слабых ТВ.
  *
  * Основной поток → воркер:
- *   {type:'ping'}                                    проверка: открыть IndexedDB
+ *   {type:'ping'}                                    проверка: соединение с SQLite3 через WebSocket
  *   {type:'load', id, url, wanted, maxArchiveDays, langs, force, prefs, proxyOk, clock}
  * Воркер → основной поток:
  *   {type:'pong', ok, error}

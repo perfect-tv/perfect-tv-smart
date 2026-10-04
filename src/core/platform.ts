@@ -23,12 +23,47 @@ function luna(uri: string, params: any, cb?: (r: any) => void): () => void {
     try { r = JSON.parse(msg); } catch (e) { r = { returnValue: false }; }
     if (cb) cb(r);
   };
-  b.call(uri, JSON.stringify(params || {}));
+  try { b.call(uri, JSON.stringify(params || {})); }
+  catch (e) { if (cb) cb({ returnValue: false, errorText: String(e) }); }
   return function () {
     try { b.cancel(); } catch (e) { /* */ }
     const i = bridges.indexOf(b);
     if (i >= 0) bridges.splice(i, 1);
   };
+}
+
+/** Однократный запрос к своему Node-сервису по системной шине webOS. */
+function requestService(method: string, params: any, timeoutMs = 45000): Promise<any> {
+  return new Promise<any>(function (resolve, reject) {
+    if (typeof w.PalmServiceBridge === 'undefined') {
+      reject(new Error('PalmServiceBridge unavailable'));
+      return;
+    }
+    let bridge: any;
+    try { bridge = new w.PalmServiceBridge(); }
+    catch (e) { reject(e); return; }
+    bridges.push(bridge);
+    let finished = false;
+    const timer = setTimeout(function () { finish(new Error('Luna timeout: ' + method), null); }, timeoutMs);
+    function finish(error: any, response: any) {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try { bridge.cancel(); } catch (e) { /* */ }
+      const i = bridges.indexOf(bridge);
+      if (i >= 0) bridges.splice(i, 1);
+      if (error) reject(error);
+      else resolve(response);
+    }
+    bridge.onservicecallback = function (raw: string) {
+      let result: any;
+      try { result = JSON.parse(raw); }
+      catch (e) { finish(new Error('Invalid Luna response: ' + method), null); return; }
+      finish(null, result);
+    };
+    try { bridge.call('luna://' + SERVICE_ID + '/' + method, JSON.stringify(params || {})); }
+    catch (e) { finish(e, null); }
+  });
 }
 
 let cursorVisible = false;
@@ -45,6 +80,7 @@ let serviceStarted = false;
 export const Platform = {
   isWebOS: isWebOS,
   luna: luna,
+  requestService: requestService,
 
   /** Версия webOS ('6.0.0'…) или '' */
   version(): string {
@@ -64,12 +100,15 @@ export const Platform = {
     console.log('service: luna start');
     luna('luna://' + SERVICE_ID + '/start', { subscribe: true }, function (r) {
       // ответ сервиса: порт прокси или ошибка (нет сервиса, не открылся порт)
-      if (r.returnValue) console.log('service: started, port', r.port);
-      else console.warn('service: failed', r.errorCode || '', r.errorText || r.error || JSON.stringify(r));
+      if (r.returnValue) {
+        console.log('service: Luna started, Node', r.node || '?', 'HTTP', r.proxyReady ? 'ready' : 'unavailable');
+        if (r.proxyError) console.warn('service: TCP listener failed', r.proxyError);
+      }
+      else {
+        serviceStarted = false; // следующий Net.checkProxy сможет повторить запуск
+        console.warn('service: failed', r.errorCode || '', r.errorText || r.error || JSON.stringify(r));
+      }
     });
-    // в журнал: отвечает ли сервис без подписки; модель и версия webOS
-    luna('luna://' + SERVICE_ID + '/ping', {}, function (r) { console.log('service: ping', JSON.stringify(r)); });
-    luna('luna://com.webos.service.tv.systemproperty/getSystemInfo', { keys: ['modelName', 'sdkVersion', 'firmwareVersion'] }, function (r) { console.log('system', JSON.stringify(r)); });
   },
 
   /** Выход: на ТВ — в лаунчер, в браузере — закрыть вкладку */

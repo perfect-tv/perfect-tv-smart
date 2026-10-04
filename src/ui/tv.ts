@@ -10,6 +10,7 @@ import { Channel, Playlist } from '../data/models';
 import { inArchive, isMissed, Reminder, Reminders } from '../data/reminders';
 import { Repo } from '../data/repo';
 import { isHlsUrl, Playback } from '../player/playback';
+import { useNativeHls } from '../player/hlsmode';
 import { Cell } from './cells';
 import { el } from './dom';
 import { Fmt } from './fmt';
@@ -80,6 +81,8 @@ export class Tv {
   private forceHls = false;
   private viaProxy = false;
   private nativeFallback = false;
+  private autoHlsFallback = false;
+  private streamStartedAt = 0;
   private seek: Seek | null = null;
   private seekTimer = 0;
   private seekTickTimer = 0;
@@ -142,7 +145,7 @@ export class Tv {
       if (!list.length) { self.devPlaylist(); return; }
       const p = self.repo.playlist(Prefs.lastPlaylist) || list[0];
       self.open(p);
-      self.repo.preloadChannels();
+      self.repo.preloadChannels().then(null, function (e) { console.warn('preload channels', e); });
     }, function (e) {
       console.error(e);
       self.showError('storage');
@@ -494,6 +497,7 @@ export class Tv {
       clearTimeout(this.scoreTimer);
       this.scoreTimer = window.setTimeout(function () { if (self.state.channel === ch && self.catalog) self.catalog.addScore(ch); }, ADAPTIVE_AFTER);
       this.nativeFallback = Prefs.playFix(ch.key) === 1;
+      this.autoHlsFallback = false;
       this.viaProxy = false;
     }
     this.state.channel = ch;
@@ -516,10 +520,13 @@ export class Tv {
     const h = ch.headers();
     let url = this.lastUrl;
     if (this.viaProxy || Net.wantProxy(h)) url = Net.proxyUrl(url, h);
-    console.log('play', ch.name, this.state.archive ? 'archive' : 'live', url.slice(0, 160));
+    const native = useNativeHls(Prefs.hlsEngine, this.state.archive !== null,
+      this.nativeFallback, this.autoHlsFallback);
+    this.streamStartedAt = Date.now();
+    console.log('play', ch.name, this.state.archive ? 'archive' : 'live', native ? 'native' : 'hlsjs', url.slice(0, 160));
     this.playback.play(url, {
       fromStart: this.state.archive !== null,
-      native: this.nativeFallback || Prefs.hlsEngine === 1,
+      native: native,
       // тип — по исходной ссылке: у ссылки через прокси (/p?u=…) расширения нет
       forceHls: this.forceHls || isHlsUrl(this.lastUrl),
     });
@@ -579,6 +586,10 @@ export class Tv {
 
   /** Первые данные: привязать позицию плеера к началу ссылки архива */
   private onReady() {
+    if (this.streamStartedAt) {
+      console.log('play ready', Date.now() - this.streamStartedAt, 'ms', this.playback.engine);
+      this.streamStartedAt = 0;
+    }
     const a = this.state.archive;
     if (!a || a.base !== null) return;
     const pb = this.playback;
@@ -627,6 +638,16 @@ export class Tv {
     // прямой запрос не прошёл (CORS, заголовки) — через прокси
     if (kind === 'network' && !this.viaProxy && Net.proxyAvailable && Prefs.proxyMode !== 2) {
       this.viaProxy = true;
+      this.startStream();
+      return;
+    }
+    // Автоматический режим: если нативный HLS не поддерживает конкретный
+    // прямой эфир, один раз пробуем hls.js. Выбор пользователя не меняем.
+    if (this.state.archive === null && Prefs.hlsEngine === 2 &&
+        this.playback.engine === 'native' && !this.autoHlsFallback &&
+        !this.nativeFallback && isHlsUrl(this.lastUrl)) {
+      this.autoHlsFallback = true;
+      console.warn('play fallback native -> hls.js', kind, detail);
       this.startStream();
       return;
     }

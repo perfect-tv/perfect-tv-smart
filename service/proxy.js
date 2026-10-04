@@ -19,6 +19,9 @@ var http = require('http');
 var https = require('https');
 var urlMod = require('url');
 var zlib = require('zlib');
+var qr = require('./qr.js');
+var filestore = require('./filestore.js');
+var websocket = require('./websocketdb.js');
 
 var PORT = 47380;
 var VERSION = 1;
@@ -55,7 +58,7 @@ function request(url, headers, cb, depth) {
   var h = {};
   var k;
   for (k in headers) if (headers.hasOwnProperty(k)) h[k] = headers[k];
-  if (!hasHeader(h, 'user-agent')) h['User-Agent'] = 'Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0 Safari/537.36 PerfectTV';
+  if (!hasHeader(h, 'user-agent')) h['User-Agent'] = 'PerfecktTV';
   if (!hasHeader(h, 'accept-encoding')) h['Accept-Encoding'] = 'gzip';
   var opts = {
     protocol: u.protocol, hostname: u.hostname, port: u.port, path: u.path, method: 'GET', headers: h,
@@ -281,9 +284,13 @@ setInterval(function  {
 function handler(req, out) {
   var u = urlMod.parse(req.url, true);
   var q = u.query || {};
+  if (u.pathname.indexOf('/_db/') === 0) return filestore.handle(req, out);
   if (req.method === 'OPTIONS') { out.writeHead(204, cors({})); return out.end; }
   switch (u.pathname) {
     case '/ping': out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true, v: VERSION }));
+    case '/qr/new': return qr.create(function (err, result) { qr.json(out, err? 503: 200, err? { returnValue: false, error: err.message || String(err) }: result); });
+    case '/qr/status': return qr.json(out, 200, qr.status(q.token));
+    case '/qr/cancel': qr.cancel(q.token); return qr.json(out, 200, { returnValue: true });
     case '/p': return handleProxy(q, req, out);
     case '/s/open': return sessionOpen(q, out);
     case '/s/read': return sessionRead(q, out);
@@ -292,21 +299,40 @@ function handler(req, out) {
   }
 }
 
-/** Запустить (повторный вызов — ничего не делает); cb(err) */
+/** Запустить; все одновременные запросы ждут фактического listen. */
+var startWaiters = [];
+var listening = false;
 function start(port, cb) {
-  if (server) { if (cb) cb(null); return; }
+  if (listening) { if (cb) cb(null); return; }
+  if (cb) startWaiters.push(cb);
+  if (server) return;
   PORT = port || PORT;
-  server = http.createServer(handler);
-  server.on('error', function (e) {
-    server = null;
-    // порт занят — значит, прокси уже работает (прошлый экземпляр сервиса)
-    if (cb) cb(e.code === 'EADDRINUSE'? null: e);
-    cb = null;
+  var s = http.createServer(handler);
+  s.on('upgrade', websocket.handle);
+  server = s;
+  var settled = false;
+  function finish(err) {
+    if (settled) return;
+    settled = true;
+    listening =!err;
+    if (err) server = null;
+    var w = startWaiters;
+    startWaiters = [];
+    for (var i = 0; i < w.length; i++) w[i](err || null);
+  }
+  s.on('error', function (err) {
+    console.error('Perfect TV proxy error:', err);
+    listening = false;
+    if (server === s) server = null;
+    finish(err); // EADDRINUSE — ошибка, а не ложное подтверждение запуска
   });
-  server.listen(PORT, '127.0.0.1', function  { if (cb) cb(null); cb = null; });
+  s.listen(PORT, '127.0.0.1', function  { finish(null); });
 }
 
-module.exports = { start: start, PORT: PORT, rewriteM3u8: rewriteM3u8 };
+// Те же HTTP-клиент и распаковка используются транспортом Luna (когда webOS
+// запрещает открыть локальный HTTP-порт). Не экспортируем сервер наружу.
+module.exports = { start: start, PORT: PORT, rewriteM3u8: rewriteM3u8,
+  request: request, bodyOf: bodyOf };
 
 if (require.main === module) {
   var p = parseInt(process.argv[2], 10) || PORT;

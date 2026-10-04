@@ -1,6 +1,6 @@
 {
   "id": "top.rootu.perfecttv",
-  "version": "1.0.4",
+  "version": "1.0.9",
   "vendor": "putilin",
   "type": "web",
   "main": "index.html",
@@ -11,5 +11,6 @@
   "iconColor": "#1A1B1C",
   "resolution": "1920x1080",
   "disableBackHistoryAPI": true,
-  "requiredPermissions": []
+  "requiredPermissions": [],
+  "requiredACG": []
 }

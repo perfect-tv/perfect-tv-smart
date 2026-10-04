@@ -5,6 +5,7 @@ import { Platform } from '../core/platform';
 import { Prefs } from '../core/prefs';
 import { Storage2 } from '../core/storage';
 import { Db } from '../data/db';
+import { SocketDb } from '../data/socketdb';
 import { SourceMeta, SRC_ERROR, SRC_LOADING, SRC_READY } from '../data/loaders';
 import { EPG_BOTH, EPG_PLAYLIST, EPG_USER_ONLY, Playlist } from '../data/models';
 import { Reminders } from '../data/reminders';
@@ -15,6 +16,7 @@ import { Layer } from './layer';
 import { Logos } from './logos';
 import { PinLayer } from './pin';
 import { FormLayer, MessageLayer, Scroller } from './popups';
+import { QrPlaylistLayer } from './qrplaylist';
 import type { Tv } from './tv';
 import { U } from './u';
 import { hintRow } from './widgets';
@@ -92,7 +94,7 @@ export class SettingsLayer implements Layer {
       self.sources = {};
       for (let i = 0; i < list.length; i++) self.sources[list[i].url] = list[i];
       if (self.stack.length) self.render(true);
-    });
+    }, function (e) { console.warn('EPG sources unavailable', e); });
   }
 
   private sectionPage(i: number): Page {
@@ -237,6 +239,7 @@ export class SettingsLayer implements Layer {
       out.push({ name: p.name, value: function  { return p.id === Prefs.lastPlaylist? '●': ''; }, desc: p.url + ' · ' + status, action: function  { self.push(self.playlistPage(p)); } });
     });
     out.push({ name: str('plus_add_playlist'), action: function  { self.editPlaylist(null); } });
+    out.push({ name: str('playlist_qr_action'), desc: str('playlist_qr_action_desc'), action: function  { self.addPlaylistByQr; } });
     return out;
   }
 
@@ -270,6 +273,28 @@ export class SettingsLayer implements Layer {
         return out;
       },
     };
+  }
+
+  /** Приём ссылки с телефона через временный HTTP-сервер на самом ТВ. */
+  private addPlaylistByQr {
+    const self = this;
+    const tv = this.tv;
+    let layer: QrPlaylistLayer | null = null;
+    layer = new QrPlaylistLayer(tv.ui, function (url, name) {
+      const existing = tv.repo.playlists.filter(function (p) { return p.url === url; });
+      if (existing.length) {
+        tv.toast.show(str('playlist_qr_exists'));
+        self.refresh;
+        return;
+      }
+      self.changed = true;
+      tv.repo.addPlaylist(name, url).then(function (p) {
+        if (!tv.playlist) { self.onClose(false); tv.open(p); return; }
+        self.refresh;
+        tv.repo.refresh(p, true).then(function  { self.refresh; });
+      }, function  { tv.toast.show(str('playlist_qr_save_error')); });
+    }, function  { tv.remove(layer!); });
+    tv.push(layer);
   }
 
   private editPlaylist(p: Playlist | null) {
@@ -338,7 +363,7 @@ export class SettingsLayer implements Layer {
     return [
       { name: str('default_archive_depth'), desc: str('if_the_playlist_does_not_set_it'), values: days.map(function (d) { return str('x_d', d); }), index: function  { return Math.max(0, days.indexOf(Prefs.archiveDays)); }, pick: function (i) { Prefs.archiveDays = days[i]; } },
       { name: str('up_key_in_the_player'), values: [str('recent_channels'), str('programme_and_archive')], index: function  { return Prefs.upArchive? 1: 0; }, pick: function (i) { Prefs.upArchive = i === 1; } },
-      { name: str('hls_engine'), desc: str('hls_engine_sub'), values: [str('hls_engine_hlsjs'), str('hls_engine_native')], index: function  { return Prefs.hlsEngine; }, pick: function (i) { Prefs.hlsEngine = i; } },
+      { name: str('hls_engine'), desc: str('hls_engine_sub'), values: [str('hls_engine_hlsjs'), str('hls_engine_native'), str('hls_engine_auto')], index: function  { return Prefs.hlsEngine; }, pick: function (i) { Prefs.hlsEngine = i; } },
       { name: str('remind_about_a_programme'), values: rem.map(function (m) { return m === 0? str('when_it_starts'): str('x_min_before', m); }), index: function  { return Math.max(0, rem.indexOf(Prefs.remindBefore)); }, pick: function (i) { Prefs.remindBefore = rem[i]; } },
       { name: str('start_with_the_last_channel'), desc: str('off_the_guide_opens_on_start'), values: [str('off'), str('on')], index: function  { return Prefs.autoplayLast? 1: 0; }, pick: function (i) { Prefs.autoplayLast = i === 1; } },
       { name: str('hide_info_panel_after'), values: hide.map(function (s) { return str('x_s', s); }), index: function  { return Math.max(0, hide.indexOf(Prefs.infoHide)); }, pick: function (i) { Prefs.infoHide = hide[i]; } },
@@ -428,7 +453,8 @@ export class SettingsLayer implements Layer {
   private pageNetwork: SItem[] {
     const self = this;
     return [
-      { name: str('proxy_status'), value: function  { return Net.proxyAvailable? str('proxy_running'): str('proxy_absent'); }, desc: str('proxy_status_sub'), action: function  { Net.checkProxy.then(function  { self.refresh; }); } },
+      { name: str('proxy_status'), value: function  { return Net.proxyAvailable? str('proxy_running'): Net.lunaAvailable? str('proxy_luna'): str('proxy_absent'); }, desc: str('proxy_status_sub'), action: function  { Net.checkProxy.then(function  { self.refresh; }); } },
+      { name: str('sqlite_storage'), desc: str('sqlite_storage_sub'), value: function  { return Storage2.sqliteActive? str('sqlite_ready'): str('sqlite_not_ready'); }, action: function  { SocketDb.available.then(function  { self.refresh; }); } },
       { name: str('proxy_mode'), desc: str('proxy_mode_sub'), values: [str('proxy_auto'), str('proxy_always'), str('proxy_never')], index: function  { return Prefs.proxyMode; }, pick: function (i) { Prefs.proxyMode = i; } },
       { name: str('platform'), value: function  { return Platform.isWebOS? 'webOS ' + (Platform.version || ''): navigator.userAgent.replace(/^.*(Chrom(e|ium)\/[\d.]+).*$/, '$1'); }, note: false },
     ];
@@ -453,7 +479,7 @@ export class SettingsLayer implements Layer {
     ];
   }
 
-  /** Резервная копия: JSON в localStorage (`backup`) — переживает удаление базы и сброс программы */
+  /** Резервная копия: JSON в SQLite (`settings.backup`); сохраняется при сбросе. */
   private backupSave {
     const self = this;
     this.tv.repo.loadPlaylists.then(function (list) {
@@ -462,7 +488,7 @@ export class SettingsLayer implements Layer {
         playlists: list.map(function (p) { return { id: p.id, name: p.name, url: p.url, epgMode: p.epgMode, userEpg: p.userEpg, sort: p.sort }; }),
       };
       Storage2.setJson('backup', data);
-      self.tv.toast.show(str('backup_saved_webos'));
+      Storage2.flush.then(function  { self.tv.toast.show(str('backup_saved_webos')); }, function (e) { console.error('backup save', e); self.tv.toast.show(str('storage_error')); });
     });
   }
 
@@ -477,9 +503,11 @@ export class SettingsLayer implements Layer {
       return { id: p.id, name: p.name, url: p.url, epgMode: p.epgMode || 0, userEpg: p.userEpg || [], headerEpg: [], loadedAt: 0, channelsCount: 0, error: '', sort: p.sort || 0 };
     });
     Db.deleteRange('playlists', IDBKeyRange.lowerBound(0)).then(function  { return Db.putAll('playlists', ps); }).then(function  {
+      return Storage2.flush;
+    }).then(function  {
       tv.toast.show(str('backup_restored'));
       setTimeout(function  { location.reload; }, 800);
-    });
+    }, function (e) { console.error('backup restore', e); tv.toast.show(str('storage_error')); });
   }
 
   private confirmReset {
@@ -489,12 +517,9 @@ export class SettingsLayer implements Layer {
       tv.remove(layer!);
       if (i!== 0) return;
       const backup = Storage2.get('backup');
-      Db.drop.then(function  {
-        const keys = Storage2.keys;
-        for (let k = 0; k < keys.length; k++) Storage2.remove(keys[k]);
-        if (backup) Storage2.set('backup', backup);
-        location.reload;
-      });
+      Storage2.flush.then(function  { return Db.drop; }).then(function  {
+        return Storage2.resetRuntime(backup);
+      }).then(function  { location.reload; }, function (e) { console.error('reset', e); tv.toast.show(str('storage_error')); });
     }, function  { tv.remove(layer!); });
     tv.push(layer);
   }

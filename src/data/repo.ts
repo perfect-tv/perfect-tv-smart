@@ -1,10 +1,12 @@
 import { Clock } from '../core/clock';
+import { Net } from '../core/net';
 import { lang, str } from '../core/lang';
 import { Prefs } from '../core/prefs';
 import { Bus } from './bus';
 import { Catalog } from './catalog';
+import { ChannelRecord, packChannels, unpackChannels, unpackProgramme } from './compact';
 import { Db, prefixRange } from './db';
-import { EpgWorker } from './epgworker';
+import { EpgService } from './epgservice';
 import { errorCode, Loaders, MapRecord, SourceMeta, SRC_ERROR, SRC_READY, WantedSet } from './loaders';
 import { RawChannel } from './m3u';
 import { Channel, epgUrlsOf, Playlist, Programme } from './models';
@@ -91,8 +93,8 @@ export class Repo {
   /** Каналы плейлиста из базы → каталог */
   loadCatalog(p: Playlist): Promise<Catalog> {
     const self = this;
-    return Db.get<{ pid: number; list: RawChannel[] }>('channels', p.id).then(function (rec) {
-      const raw = rec ? rec.list : [];
+    return Db.get<ChannelRecord>('channels', p.id).then(function (rec) {
+      const raw = unpackChannels(rec);
       self.channelsOf[p.id] = raw;
       return self.catalogOf(p, raw);
     });
@@ -134,8 +136,13 @@ export class Repo {
       p.loadedAt = Clock.now();
       p.channelsCount = res.list.length;
       p.error = '';
-      self.channelsOf[p.id] = res.list;
-      return Db.put('channels', { pid: p.id, list: res.list }).then(function () { return Db.put('playlists', p); }).then(function () {
+      // Сжимаем и сохраняем. Если IndexedDB заполнена, Db переключится
+      // на файловое хранилище Node-сервиса без удаления сохранённой EPG.
+      const record = packChannels(p.id, res.list);
+      return Db.put('channels', record).then(function () {
+        self.channelsOf[p.id] = res.list;
+        return Db.put('playlists', p);
+      }).then(function () {
         // сопоставление с уже загруженными источниками — по новым каналам
         const urls = epgUrlsOf(p);
         return Promise.all(urls.map(function (u) { return Loaders.rematch(u, self.wantedFor(u)); }));
@@ -151,8 +158,12 @@ export class Repo {
       const code = errorCode(e);
       console.error('playlist failed', code, e);
       p.error = code;
-      Db.put('playlists', p);
-      return code;
+      // Сохранение ошибки само может упасть из-за квоты: не оставляем
+      // неперехваченный promise и не маскируем исходную проблему.
+      return Db.put('playlists', p).then(function () { return code; }, function (writeErr) {
+        console.warn('playlist error state not saved', writeErr);
+        return code;
+      });
     });
   }
 
@@ -175,18 +186,29 @@ export class Repo {
             Bus.emit('progress', self.progress);
           };
           const onPack = function () { self.invalidate(url, false); };
-          // в воркере (основной поток свободен для гида и плеера); нельзя — здесь же
-          return EpgWorker.available().then(function (ok) {
-            if (ok) return EpgWorker.load(url, self.wantedFor(url), self.maxArchiveDays, self.langs(), force, onProgress, onPack);
-            return Loaders.loadEpg(url, self.wantedFor(url), self.maxArchiveDays, self.langs(), force, onProgress, onPack);
-          }).then(function () {
+          // SQLite lives in the JS service. Parse and store XMLTV there, not in
+          // the browser Worker; keep the old loader only for offline service mode.
+          const wanted = self.wantedFor(url);
+          // From 1.0.8 all EPG parsing, HTTP decompression and SQLite writes
+          // happen in the Node service. No browser Worker or IndexedDB writes.
+          const load = EpgService.load(url, wanted, self.maxArchiveDays,
+            self.langs(), force, onProgress, onPack);
+          return load.then(function () {
             delete self.queued[url];
             self.progress = null;
             self.invalidate(url, true);
             Bus.emit('progress', null);
+          }, function (err) {
+            delete self.queued[url];
+            self.progress = null;
+            Bus.emit('progress', null);
+            throw err;
           });
         });
         self.runQueue();
+      }, function (err) {
+        delete self.queued[url];
+        console.warn('EPG source metadata read', err);
       });
     });
   }
@@ -232,7 +254,7 @@ export class Repo {
     const self = this;
     return Promise.all(this.playlistsCache.map(function (p) {
       if (self.channelsOf[p.id]) return Promise.resolve();
-      return Db.get<{ pid: number; list: RawChannel[] }>('channels', p.id).then(function (r) { self.channelsOf[p.id] = r ? r.list : []; });
+      return Db.get<ChannelRecord>('channels', p.id).then(function (r) { self.channelsOf[p.id] = unpackChannels(r); });
     })).then(function () { /* */ });
   }
 
@@ -432,7 +454,7 @@ export function merge(packs: any[], shift: number): Programme[] {
   let nLo = Infinity, nHi = -Infinity;
   for (let i = 0; i < packs.length; i++) {
     const pk = packs[i];
-    const p = pk.p as any[];
+    const p = unpackProgramme(pk);
     for (let j = 0; j < p.length; j++) {
       const r = p[j];
       if (pk.l === newest) { if (r[0] < nLo) nLo = r[0]; if (r[1] > nHi) nHi = r[1]; }

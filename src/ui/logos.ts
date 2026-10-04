@@ -14,6 +14,7 @@ import { C, drawText, roundRect, U } from './u';
 interface Entry { img: HTMLImageElement; state: 0 | 1 | 2; waiters: ( => void)[] }
 
 const MAX = 400;
+const MAX_FAILED = 150; // Список недоступных URL не должен заполнить localStorage на webOS
 const cache: { [url: string]: Entry } = {};
 const order: string[] = [];
 let failed: { [url: string]: number } = Storage2.json<{ [url: string]: number }>('logo_failed', {});
@@ -26,8 +27,15 @@ function markFailed(u: string) {
   const online = typeof navigator === 'undefined' || navigator.onLine!== false;
   failed[u] = now + (online? 12 * 3600 * 1000: 3 * 60 * 1000);
   if (online) {
-    // устаревшие — долой
-    for (const k in failed) if (failed[k] < now) delete failed[k];
+    // Устаревшие и самые старые — долой; URL логотипов могут быть длинными.
+    const active: string[] = [];
+    for (const k in failed) {
+      if (failed[k] < now) delete failed[k]; else active.push(k);
+    }
+    if (active.length > MAX_FAILED) {
+      active.sort(function (a, b) { return failed[a] - failed[b]; });
+      for (let i = 0; i < active.length - MAX_FAILED; i++) delete failed[active[i]];
+    }
     Storage2.setJson('logo_failed', failed);
   }
 }

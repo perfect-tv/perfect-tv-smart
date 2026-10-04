@@ -41,6 +41,7 @@ export class NetError extends Error {
 
 let proxyOk = false;
 let proxyChecked = false;
+let lunaOk = false;
 const hasStreams = typeof ReadableStream!== 'undefined' && typeof fetch!== 'undefined' && typeof Response!== 'undefined' && 'body' in Response.prototype;
 
 function sleep(ms: number) { return new Promise<void>(function (r) { setTimeout(r, ms); }); }
@@ -71,8 +72,25 @@ function respOfFetch(r: Response, url: string, proxied: boolean): Resp {
   return { status: r.status, url: r.url || url, proxied: proxied, header: function (n) { return r.headers.get(n) || ''; } };
 }
 
+/** Сервис может работать по Luna, даже если webOS заблокировал HTTP listen. */
+function checkLuna: Promise<boolean> {
+  if (!Platform.isWebOS) return Promise.resolve(false);
+  return Platform.requestService('ping', {}, 9000).then(function (r: any) {
+    lunaOk =!!r.returnValue;
+    if (lunaOk) console.log('Luna data transport available, Node', r.node || '?',
+      r.proxyReady? 'HTTP listener ready': 'HTTP listener not ready');
+    else console.warn('Luna ping failed', r.errorText || r.error || JSON.stringify(r));
+    return lunaOk;
+  }, function (e: any) {
+    lunaOk = false;
+    console.warn('Luna service unavailable', e && (e.message || e));
+    return false;
+  });
+}
+
 export const Net = {
   get proxyAvailable { return proxyOk; },
+  get lunaAvailable { return lunaOk; },
 
   /** Разбудить JS-сервис (на ТВ) и проверить прокси */
   init: Promise<boolean> {
@@ -81,6 +99,7 @@ export const Net = {
   },
 
   checkProxy: Promise<boolean> {
+    if (Platform.isWebOS) Platform.startService;
     const tries = Platform.isWebOS? 6: 1;
     let i = 0;
     function attempt: Promise<boolean> {
@@ -88,13 +107,14 @@ export const Net = {
         proxyOk = x.status === 200 && x.responseText.indexOf('"ok":true') >= 0;
         console.log('proxy', proxyOk? 'ok': 'bad answer ' + x.status);
         proxyChecked = true;
-        return proxyOk;
+        if (proxyOk) return true;
+        return checkLuna.then(function  { return false; });
       }, function  {
         if (++i < tries) return sleep(500).then(attempt);
         proxyOk = false;
         proxyChecked = true;
-        console.warn('proxy absent');
-        return false;
+        console.warn('HTTP proxy absent; checking Luna transport');
+        return checkLuna.then(function  { return false; });
       });
     }
     return attempt;
@@ -141,9 +161,15 @@ export const Net = {
   },
 
   streamProxy(url: string, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
-    // сервис мог подняться позже первой проверки (Node на слабом ТВ стартует долго) — проверить ещё раз
+    // На LG локальный TCP-порт может быть запрещён: используем системную шину,
+    // которой для передачи M3U/XMLTV не нужен HTTP-сервер на телевизоре.
     if (!proxyOk) {
       if (typeof document === 'undefined') return Promise.reject(new NetError('need_service'));
+      if (lunaOk) return streamLuna(url, opts, onChunk);
+      if (Platform.isWebOS) return checkLuna.then(function (ok) {
+        if (!ok) throw new NetError('need_service');
+        return streamLuna(url, opts, onChunk);
+      });
       return Net.checkProxy.then(function (ok) {
         if (!ok) throw new NetError('need_service');
         return Net.streamProxy(url, opts, onChunk);
@@ -186,6 +212,66 @@ function checkStatus(r: Resp, opts: StreamOpts) {
   if (r.status === 0) throw new NetError('network', 0);
   if (r.status >= 400) throw new NetError('http_' + r.status, r.status);
   if (opts.onResponse) opts.onResponse(r);
+}
+
+/** Бинарный ответ Node-сервиса по Luna; base64 блоками до 32 КБ. */
+function streamLuna(url: string, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
+  console.log('net luna', url.slice(0, 160));
+  let session = '';
+  let read = 0;
+  function close {
+    if (!session) return;
+    const id = session;
+    session = '';
+    Platform.requestService('streamClose', { id: id }, 5000).then(function  { /* */ }, function  { /* */ });
+  }
+  return Platform.requestService('streamOpen', {
+    url: url, headers: opts.headers || {}, etag: opts.etag || '', lastModified: opts.lastModified || '',
+  }, 35000).then(function (o: any): Promise<Resp> {
+    if (!o.returnValue ||!o.id) {
+      console.warn('Luna streamOpen failed', o.error || o.errorText || JSON.stringify(o));
+      throw new NetError('network');
+    }
+    session = String(o.id);
+    const hd: { [k: string]: string } = o.headers || {};
+    const response: Resp = {
+      status: o.status || 0, url: o.url || url, proxied: true,
+      header: function (name) { return hd[name.toLowerCase] || ''; },
+    };
+    checkStatus(response, opts);
+    if (response.status === 304 || o.end) return Promise.resolve(response);
+    const total = parseInt(hd['content-length'] || '0', 10) || 0;
+    function next: Promise<Resp> {
+      if (opts.cancelled && opts.cancelled) return Promise.resolve(response);
+      return Platform.requestService('streamRead', { id: session }, 60000).then(function (part: any) {
+        if (!part.returnValue) {
+          console.warn('Luna streamRead failed', part.error || part.errorText || 'unknown');
+          throw new NetError('network');
+        }
+        const binary = atob(part.data || '');
+        const chunk = new Uint8Array(binary.length);
+        for (let j = 0; j < binary.length; j++) chunk[j] = binary.charCodeAt(j);
+        read += chunk.length;
+        if (opts.onProgress) opts.onProgress(read, total);
+        return Promise.resolve(chunk.length? onChunk(chunk): undefined).then(function  {
+          if (part.end) {
+            if (part.error) { console.warn('Luna upstream error', part.error); throw new NetError('network'); }
+            return response;
+          }
+          return next;
+        });
+      });
+    }
+    return next;
+  }).then(function (r) {
+    close;
+    return r;
+  }, function (e: any) {
+    close;
+    if (e instanceof NetError) throw e;
+    console.warn('Luna transfer error', e && (e.message || e));
+    throw new NetError('network');
+  });
 }
 
 /** Promise с пределом времени: не уложился — NetError('timeout') */
