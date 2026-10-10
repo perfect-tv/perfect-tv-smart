@@ -251,9 +251,28 @@ function execute(job, q) {
           meta.etag = etag; meta.lastModified = lm; meta.loadId = loadId; meta.count = total;
           groups.sources = [record('sources', meta)];
         }
-        commit(groups, final ? { url: url, loadId: loadId } : null, function (batchErr) {
-          if (!batchErr) job.revision++;
-          callback(batchErr);
+        if (!final) {
+          commit(groups, null, function (batchErr) {
+            if (!batchErr) job.revision++;
+            callback(batchErr);
+          });
+          return;
+        }
+        // конец загрузки: дописать последнее, собрать каналы в .json.gz (их браузер распакует сам),
+        // затем записать источник и удалить файлы прежней загрузки
+        var sources = groups.sources;
+        delete groups.sources;
+        commit(groups, null, function (batchErr) {
+          if (batchErr) return callback(batchErr);
+          job.phase = 'packing';
+          var fin = (backend && backend.finalize) || require('./progfiles.js').finalizeSource;
+          fin(url, loadId, function (finErr) {
+            if (finErr) console.warn('EPG finalize', finErr && finErr.message);
+            commit({ sources: sources }, { url: url, loadId: loadId }, function (srcErr) {
+              if (!srcErr) job.revision++;
+              callback(srcErr);
+            });
+          });
         });
       }
       function onDecoded(chunk) {

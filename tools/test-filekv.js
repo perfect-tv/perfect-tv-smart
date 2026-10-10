@@ -4,6 +4,9 @@
 var fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert');
 var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-filekv-'));
 process.env.PERFECTTV_DATA_DIR = dir;
+// старая раскладка программы 1.1.0 — должна удалиться, источники — сброситься
+fs.mkdirSync(path.join(dir, 'prog')); fs.writeFileSync(path.join(dir, 'prog', 'x.ndjson'), '{}\n');
+fs.writeFileSync(path.join(dir, 'sources.json'), JSON.stringify({ '"old"': { k: 'old', v: { url: 'old' } } }));
 // старая база 1.0.9: плейлист и настройка — должны перенестись
 var codec = require('../service/sqlitekv.js');
 // шаблон SQLite загружается при первом обращении (только чтение — файлов не создаёт)
@@ -32,6 +35,10 @@ function run() {
     return q('get', { store: 'settings', key: 'prefs' });
   }).then(function (r) {
     assert.strictEqual(r.record.value, '{"pin":"1234"}', 'настройки перенесены');
+    assert.ok(!fs.existsSync(path.join(dir, 'prog')), 'старая раскладка программы удалена');
+    return q('get', { store: 'sources', key: 'old' });
+  }).then(function (r) {
+    assert.strictEqual(r.record, null, 'источники сброшены — программа скачается заново');
     // программа: две загрузки, вторая с удалением первой
     var p = function (l, n, x) { return { key: ['src', x, l, n], value: { s: 'src', x: x, l: l, n: n, data: 'L' + l + 'N' + n } }; };
     return q('epgBatch', { groups: { prog: [p(1, 0, 'a'), p(1, 0, 'b')], sources: [{ key: 'src', value: { url: 'src', loadId: 1 } }] } });
@@ -52,7 +59,32 @@ function run() {
     return q('list', { store: 'prog', range: { lower: ['src', 'a'], upper: ['src', 'a', []] } });
   }).then(function (r) {
     assert.deepStrictEqual(r.records.map(function (x) { return x.key[3]; }), [1], 'удаление пачки');
-    return q('put', { store: 'channels', items: [{ key: 7, value: { pid: 7, list: [1, 2] } }] });
+    // сборка канала в один .json.gz и отдача по HTTP как есть
+    var pf = require('../service/progfiles.js'), zlib = require('zlib');
+    var gz = zlib.gzipSync(new Buffer(JSON.stringify([[1, 2, 'T']])));
+    return q('epgBatch', { groups: { prog: [{ key: ['s2', 'c9', 5, 0], value: { codec: 'gzip-json-b64-1', data: gz.toString('base64') } }, { key: ['s2', 'c9', 5, 1], value: { p: [[3, 4, 'U']] } }] } }).then(function () {
+      var dir9 = pf.chanDir('s2', 'c9');
+      assert.strictEqual(path.basename(path.dirname(dir9)).length, 2, 'корзина из двух знаков');
+      return new Promise(function (res) { pf.finalizeSource('s2', 5, res); }).then(function () {
+        assert.deepStrictEqual(fs.readdirSync(dir9), ['5.json.gz'], 'канал собран в один .json.gz');
+        return new Promise(function (res) {
+          var head = {}, body = [];
+          var out = { writeHead: function (c, hh) { head = hh; head.code = c; }, write: function (b) { body.push(b); }, end: function (b) { if (b) body.push(b); res({ head: head, body: Buffer.concat(body.map(function (x) { return Buffer.isBuffer(x) ? x : new Buffer(x); })) }); }, on: function () { return out; }, once: function () { return out; }, emit: function () {}, removeListener: function () {} };
+          var stream = require('stream'), w = new stream.Writable({ write: function (c, e, cb) { body.push(c); cb(); } });
+          w.writeHead = out.writeHead;
+          w.on('finish', function () { res({ head: head, body: Buffer.concat(body) }); });
+          pf.serve('s2', 'c9', w, {});
+        });
+      });
+    }).then(function (resp) {
+      assert.strictEqual(resp.head['Content-Encoding'], 'gzip', 'Content-Encoding: gzip');
+      var packs = JSON.parse(zlib.gunzipSync(resp.body).toString('utf8'));
+      assert.deepStrictEqual(packs.map(function (p) { return p.p[0][2]; }), ['T', 'U'], 'обе пачки, распакованы');
+      return q('list', { store: 'prog', range: { lower: ['s2', 'c9'], upper: ['s2', 'c9', []] } });
+    }).then(function (r2) {
+      assert.strictEqual(r2.records.length, 2, 'чтение собранного канала по WebSocket');
+      return q('put', { store: 'channels', items: [{ key: 7, value: { pid: 7, list: [1, 2] } }] });
+    });
   }).then(function () {
     var saved = JSON.parse(fs.readFileSync(path.join(dir, 'channels.json'), 'utf8'));
     assert.ok(saved[JSON.stringify(7)], 'каналы записаны на диск до ответа');

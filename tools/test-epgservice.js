@@ -73,8 +73,8 @@ server.listen(0,'127.0.0.1',async function(){
     var packs=await call('list',{store:'prog',range:{lower:[url],upper:[url,[]]}});
     assert.strictEqual(packs.records.length,1);
     var pack=packs.records[0].value;
-    assert.strictEqual(pack.codec,'gzip-json-b64-1');
-    var unpacked=JSON.parse(zlib.gunzipSync(new Buffer(pack.data,'base64')).toString('utf8'));
+    // после загрузки канал собран в .json.gz: пачка — с готовым массивом p
+    var unpacked=pack.p || JSON.parse(zlib.gunzipSync(new Buffer(pack.data,'base64')).toString('utf8'));
     assert.strictEqual(unpacked.length,60);
     assert.strictEqual(unpacked[0][2], 'Test 0 & more');
     assert.strictEqual(unpacked[0][3],'');

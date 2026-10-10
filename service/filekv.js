@@ -7,21 +7,21 @@
  *   <store>.json                     мелкие хранилища целиком: playlists, channels, sources,
  *                                    epgch, map, settings — в памяти; запись с задержкой,
  *                                    атомарно (временный файл + rename)
- *   prog/<h(s)>/<h(x)>/<l>.ndjson    программа: пачки канала x источника s загрузки l,
- *                                    строка — {"k":[s,x,l,n],"v":…}; пачки только дописываются
- * Программа в памяти не держится, база целиком не перезаписывается: запись пачки — дописать
- * строку в файл её канала, чтение канала — прочитать его файлы, смена загрузки — удалить
- * файлы прежних загрузок.
+ *   prog2/…                          программа — файлы каналов (service/progfiles.js): пачки
+ *                                    дописываются в .ndjson, в конце загрузки канал собирается
+ *                                    в один .json.gz (его HTTP /prog отдаёт браузеру как есть)
+ * Программа в памяти не держится, хранилище целиком не перезаписывается.
  *
  * Код — ES5 (Node 0.12 на webOS 3–5).
  */
 'use strict';
 var fs = require('fs');
 var path = require('path');
-var crypto = require('crypto');
+var pf = require('./progfiles.js');
 
-var ROOT = process.env.PERFECTTV_DATA_DIR || '/media/internal/perfecttv-data';
-var PROG = path.join(ROOT, 'prog');
+var ROOT = pf.ROOT;
+var PROG = pf.PROG;
+var OLD_PROG = path.join(ROOT, 'prog');   // раскладка 1.1.0 (без корзин, без .json.gz)
 var SMALL = { playlists: 1, channels: 1, sources: 1, epgch: 1, map: 1, settings: 1 };
 var SAVE_DELAY = 300;
 
@@ -34,7 +34,6 @@ var progBusy = false;
 function error(msg) { var e = new Error(msg); e.code = 'EINVAL'; return e; }
 function valid(store) { return store === 'prog' || Object.prototype.hasOwnProperty.call(SMALL, store); }
 function id(key) { return JSON.stringify(key); }
-function h(s) { return crypto.createHash('sha1').update(String(s), 'utf8').digest('hex').slice(0, 20); }
 
 function compare(a, b) {
   if (typeof a === 'number' && typeof b === 'number') return a < b ? -1 : a > b ? 1 : 0;
@@ -53,29 +52,8 @@ function inRange(key, range) {
   return true;
 }
 
-function mkdirp(dir, cb) {
-  fs.mkdir(dir, function (e) {
-    if (!e || e.code === 'EEXIST') return cb(null);
-    if (e.code !== 'ENOENT') return cb(e);
-    mkdirp(path.dirname(dir), function (pe) { if (pe) return cb(pe); fs.mkdir(dir, function (e2) { cb(!e2 || e2.code === 'EEXIST' ? null : e2); }); });
-  });
-}
-
-function rmrf(p, cb) {
-  fs.lstat(p, function (e, st) {
-    if (e) return cb(e.code === 'ENOENT' ? null : e);
-    if (!st.isDirectory()) return fs.unlink(p, function (ue) { cb(ue && ue.code !== 'ENOENT' ? ue : null); });
-    fs.readdir(p, function (re, names) {
-      if (re) return cb(re);
-      var i = 0;
-      (function next(err) {
-        if (err) return cb(err);
-        if (i >= names.length) return fs.rmdir(p, function (de) { cb(de && de.code !== 'ENOENT' ? de : null); });
-        rmrf(path.join(p, names[i++]), next);
-      })();
-    });
-  });
-}
+var mkdirp = pf.mkdirp;
+var rmrf = pf.rmrf;
 
 function writeAtomic(file, text, cb) {
   var tmp = file + '.' + process.pid + '.tmp';
@@ -152,6 +130,18 @@ function init(cb) {
  * Программа не переносится — она скачается снова. Старые файлы удаляются после переноса.
  */
 function migrate(cb) {
+  // раскладка программы 1.1.0 — удалить и сбросить источники: программа скачается заново
+  fs.stat(OLD_PROG, function (oe) {
+    if (oe) return migrateSqlite(cb);
+    console.log('filekv: old programme layout removed, programme will reload');
+    rmrf(OLD_PROG, function () {
+      stores.sources.data = {};
+      writeAtomic(path.join(ROOT, 'sources.json'), '{}', function () { migrateSqlite(cb); });
+    });
+  });
+}
+
+function migrateSqlite(cb) {
   var marker = path.join(ROOT, 'files.v1');
   fs.stat(marker, function (me) {
     if (!me) return cb(null);
@@ -201,51 +191,6 @@ function migrate(cb) {
 
 // ------------------------------------------------------------ программа
 
-function chanDir(s, x) { return path.join(PROG, h(s), h(x)); }
-
-/** Строки файлов канала → записи {key, value} */
-function readChannel(s, x, cb) {
-  var dir = chanDir(s, x);
-  fs.readdir(dir, function (err, names) {
-    if (err) return cb(err.code === 'ENOENT' ? null : err, []);
-    var out = [], i = 0;
-    (function next() {
-      if (i >= names.length) return cb(null, out);
-      var name = names[i++];
-      if (!/\.ndjson$/.test(name)) return next();
-      fs.readFile(path.join(dir, name), 'utf8', function (re, text) {
-        if (!re) {
-          var lines = text.split('\n');
-          for (var j = 0; j < lines.length; j++) {
-            if (!lines[j]) continue;
-            // недописанная последняя строка (запись идёт прямо сейчас) — пропускаем
-            try { var r = JSON.parse(lines[j]); out.push({ key: r.k, value: r.v }); } catch (e) { /* */ }
-          }
-        }
-        next();
-      });
-    })();
-  });
-}
-
-/** Каналы источника (или всех): [{s, x}] — из первой строки любого файла канала */
-function channelsOf(sourceHash, cb) {
-  var roots = [];
-  function scanSource(sh, done) {
-    fs.readdir(path.join(PROG, sh), function (e, chans) {
-      if (e) return done();
-      for (var i = 0; i < chans.length; i++) roots.push(path.join(PROG, sh, chans[i]));
-      done();
-    });
-  }
-  if (sourceHash) return scanSource(sourceHash, function () { cb(roots); });
-  fs.readdir(PROG, function (e, srcs) {
-    if (e) return cb(roots);
-    var i = 0;
-    (function next() { if (i >= srcs.length) return cb(roots); scanSource(srcs[i++], next); })();
-  });
-}
-
 function progRun(task) {
   progQueue.push(task);
   if (progBusy) return;
@@ -255,50 +200,6 @@ function progRun(task) {
     if (!t) { progBusy = false; return; }
     t(function () { setImmediate(next); });
   })();
-}
-
-/** Дописать пачки: по файлу канала-загрузки, последовательно */
-function appendPacks(rows, cb) {
-  var groups = {}, order = [];
-  for (var i = 0; i < rows.length; i++) {
-    var k = rows[i].key;
-    if (!Array.isArray(k) || k.length < 4) return cb(error('invalid prog key'));
-    var file = path.join(chanDir(k[0], k[1]), String(k[2]) + '.ndjson');
-    if (!groups[file]) { groups[file] = ''; order.push(file); }
-    groups[file] += JSON.stringify({ k: k, v: rows[i].value }) + '\n';
-  }
-  var j = 0;
-  (function next(err) {
-    if (err) return cb(err);
-    if (j >= order.length) return cb(null);
-    var f = order[j++];
-    mkdirp(path.dirname(f), function (me) {
-      if (me) return next(me);
-      fs.appendFile(f, groups[f], next);
-    });
-  })();
-}
-
-/** Удалить у источника s файлы всех загрузок, кроме keepLoad */
-function pruneSource(s, keepLoad, cb) {
-  var keep = String(keepLoad) + '.ndjson';
-  channelsOf(h(s), function (dirs) {
-    var i = 0;
-    (function next() {
-      if (i >= dirs.length) return cb(null);
-      var dir = dirs[i++];
-      fs.readdir(dir, function (e, names) {
-        if (e) return next();
-        var j = 0;
-        (function del() {
-          if (j >= names.length) return next();
-          var n = names[j++];
-          if (n === keep) return del();
-          fs.unlink(path.join(dir, n), function () { del(); });
-        })();
-      });
-    })();
-  });
 }
 
 /** Удалить пачки по ключам: переписать файлы их каналов без этих строк (редкий путь) */
@@ -315,26 +216,10 @@ function deletePacks(keys, cb) {
   (function next() {
     if (j >= list.length) return cb(null);
     var ch = byChan[list[j++]];
-    readChannel(ch.s, ch.x, function (e, recs) {
-      var files = {};
-      for (var r = 0; r < recs.length; r++) {
-        if (ch.ids[id(recs[r].key)]) continue;
-        var f = String(recs[r].key[2]) + '.ndjson';
-        files[f] = (files[f] || '') + JSON.stringify({ k: recs[r].key, v: recs[r].value }) + '\n';
-      }
-      var dir = chanDir(ch.s, ch.x);
-      rmrf(dir, function () {
-        var names = Object.keys(files);
-        if (!names.length) return next();
-        mkdirp(dir, function () {
-          var n = 0;
-          (function w() {
-            if (n >= names.length) return next();
-            var name = names[n++];
-            fs.writeFile(path.join(dir, name), files[name], w);
-          })();
-        });
-      });
+    pf.readChannel(ch.s, ch.x, function (e, recs) {
+      var keep = [];
+      for (var r = 0; r < recs.length; r++) if (!ch.ids[id(recs[r].key)]) keep.push({ key: recs[r].key, value: recs[r].value });
+      rmrf(pf.chanDir(ch.s, ch.x), function () { if (!keep.length) return next(); pf.appendPacks(keep, next); });
     });
   })();
 }
@@ -346,25 +231,15 @@ function listProg(range, cb) {
   var s = lower && upper && typeof lower[0] === 'string' && lower[0] === upper[0] ? lower[0] : null;
   var x = s !== null && lower.length >= 2 && upper.length >= 2 && lower[1] === upper[1] ? lower[1] : null;
   if (s !== null && x !== null) {
-    return readChannel(s, x, function (e, recs) { cb(e, recs.filter(function (r) { return inRange(r.key, range); })); });
+    return pf.readChannel(s, x, function (e, recs) { cb(e, recs.filter(function (r) { return inRange(r.key, range); })); });
   }
-  channelsOf(s !== null ? h(s) : null, function (dirs) {
+  pf.channelDirs(s !== null ? pf.h(s) : null, function (dirs) {
     var out = [], i = 0;
     (function next() {
       if (i >= dirs.length) return cb(null, out);
-      var dir = dirs[i++];
-      fs.readdir(dir, function (e, names) {
-        if (e || !names.length) return next();
-        // s и x канала — из первой строки любого его файла
-        fs.readFile(path.join(dir, names[0]), 'utf8', function (re, text) {
-          var first = null;
-          try { first = JSON.parse((text || '').split('\n')[0]); } catch (pe) { first = null; }
-          if (!first || !Array.isArray(first.k)) return next();
-          readChannel(first.k[0], first.k[1], function (ce, recs) {
-            for (var r = 0; r < recs.length; r++) if (inRange(recs[r].key, range)) out.push(recs[r]);
-            next();
-          });
-        });
+      pf.readDir(dirs[i++], function (e, recs) {
+        for (var r = 0; r < recs.length; r++) if (inRange(recs[r].key, range)) out.push(recs[r]);
+        setImmediate(next);
       });
     })();
   });
@@ -414,7 +289,7 @@ function dispatch(op, q, cb) {
       var count = 0;
       for (g in groups) if (Object.prototype.hasOwnProperty.call(groups, g)) count += groups[g].length;
       return progRun(function (done) {
-        appendPacks(prog, function (ae) {
+        pf.appendPacks(prog, function (ae) {
           if (ae) { done(); return cb(ae); }
           var finish = function (pe) {
             // мелкие хранилища программы (sources, epgch, map) — записать сразу, без задержки
@@ -426,7 +301,7 @@ function dispatch(op, q, cb) {
             }
             if (!pend) { done(); cb(firstErr, { written: count }); }
           };
-          if (q.prune) pruneSource(q.prune.url, q.prune.loadId, finish); else finish(null);
+          if (q.prune) pf.pruneSource(q.prune.url, q.prune.loadId, finish); else finish(null);
         });
       });
     }
@@ -446,7 +321,7 @@ function dispatch(op, q, cb) {
       var items = q.items;
       if (!Array.isArray(items) || items.length > 100) return cb(error('invalid batch'));
       for (i = 0; i < items.length; i++) if (!items[i] || items[i].key === undefined || items[i].value === undefined) return cb(error('invalid record'));
-      if (store === 'prog') return progRun(function (done) { appendPacks(items, function (e) { done(); cb(e, { written: items.length }); }); });
+      if (store === 'prog') return progRun(function (done) { pf.appendPacks(items, function (e) { done(); cb(e, { written: items.length }); }); });
       for (i = 0; i < items.length; i++) stores[store].data[id(items[i].key)] = { k: items[i].key, v: items[i].value };
       // настройки — с задержкой (часто и мелко); остальное — дождаться записи
       if (store === 'settings') { touch(store); return cb(null, { written: items.length }); }
@@ -468,7 +343,7 @@ function dispatch(op, q, cb) {
         var lo = range && Array.isArray(range.lower) ? range.lower : null, up = range && Array.isArray(range.upper) ? range.upper : null;
         var src = lo && up && typeof lo[0] === 'string' && lo[0] === up[0] ? lo[0] : null;
         return progRun(function (done) {
-          var target = src !== null ? path.join(PROG, h(src)) : PROG;
+          var target = src !== null ? pf.sourceDir(src) : PROG;
           rmrf(target, function (e) { mkdirp(PROG, function () { done(); cb(e, { removed: true }); }); });
         });
       }
@@ -493,4 +368,4 @@ function flush(cb) {
   if (!pend && cb) cb();
 }
 
-module.exports = { dispatch: dispatch, flush: flush, valid: valid, root: ROOT };
+module.exports = { dispatch: dispatch, flush: flush, valid: valid, root: ROOT, finalize: pf.finalizeSource };

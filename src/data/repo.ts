@@ -1,5 +1,5 @@
 import { Clock } from '../core/clock';
-import { Net } from '../core/net';
+import { Net, PROXY } from '../core/net';
 import { lang, str } from '../core/lang';
 import { Prefs } from '../core/prefs';
 import { Bus } from './bus';
@@ -332,7 +332,7 @@ export class Repo {
     this.touch(ck);
     const shift = Math.round(ch.tvgShift * 3600);
     const self = this;
-    Db.all<any>('prog', prefixRange([e[0], e[1]])).then(function (packs) {
+    programmePacks(e[0], e[1]).then(function (packs) {
       entry.list = merge(packs, shift);
       entry.loading = false;
       if (self.cache[ck] === entry) Bus.emit('epg', ch.key);
@@ -421,7 +421,7 @@ export class Repo {
       if (!e) return next();
       const ck = ch.playlistId + ':' + ch.key;
       const cached = self.cache[ck];
-      const get = cached && !cached.loading ? Promise.resolve(cached.list) : Db.all<any>('prog', prefixRange([e[0], e[1]])).then(function (packs) { return merge(packs, Math.round(ch.tvgShift * 3600)); });
+      const get = cached && !cached.loading ? Promise.resolve(cached.list) : programmePacks(e[0], e[1]).then(function (packs) { return merge(packs, Math.round(ch.tvgShift * 3600)); });
       return get.then(function (list) {
         const from = now - ch.archiveDays * 86400;
         const to = now + 7 * 86400;
@@ -445,6 +445,26 @@ export class Repo {
  * Пачки → список передач: дубли по началу — из более новой загрузки, по возрастанию,
  * перекрытия обрезаются по началу следующей.
  */
+/**
+ * Пачки программы канала: у сервиса — HTTP /prog (готовый .json.gz с Content-Encoding: gzip —
+ * браузер ТВ распаковывает сам, без fflate в основном потоке); не вышло — по WebSocket / из базы.
+ */
+function programmePacks(s: string, x: string): Promise<any[]> {
+  const fallback = function () { return Db.all<any>('prog', prefixRange([s, x])); };
+  if (!Net.proxyAvailable) return fallback();
+  return new Promise<any[]>(function (resolve, reject) {
+    const r = new XMLHttpRequest();
+    r.open('GET', PROXY + '/prog?s=' + encodeURIComponent(s) + '&x=' + encodeURIComponent(x), true);
+    r.timeout = 15000;
+    r.onload = function () {
+      if (r.status !== 200) { reject(new Error('prog ' + r.status)); return; }
+      try { resolve(JSON.parse(r.responseText)); } catch (e) { reject(e); }
+    };
+    r.onerror = r.ontimeout = function () { reject(new Error('prog network')); };
+    r.send();
+  }).then(null, function (e) { console.warn('prog http', e && e.message); return fallback(); });
+}
+
 export function merge(packs: any[], shift: number): Programme[] {
   packs.sort(function (a, b) { return b.l - a.l || a.n - b.n; });
   const byStart: { [t: number]: true } = {};

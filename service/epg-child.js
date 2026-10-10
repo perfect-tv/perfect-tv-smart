@@ -14,7 +14,9 @@ epg.setBackend({
     var rid = ++seq;
     waits[rid] = cb;
     process.send({ type: 'kv', rid: rid, op: op, q: q });
-  }
+  },
+  // сборка каналов в .json.gz — здесь, в дочернем процессе (файлы программы родитель в памяти не держит)
+  finalize: require('./progfiles.js').finalizeSource
 });
 
 var watched = {};
