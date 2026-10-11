@@ -11,6 +11,8 @@
  *                                    дописываются в .ndjson, в конце загрузки канал собирается
  *                                    в один .json.gz (его HTTP /prog отдаёт браузеру как есть)
  * Программа в памяти не держится, хранилище целиком не перезаписывается.
+ * Уборка (gc): всё, на что не ссылается ни один плейлист, удаляется — при запуске, в конце каждой
+ * загрузки программы и через 5 с после изменения плейлистов. Свободное место не утекает.
  *
  * Код — ES5 (Node 0.12 на webOS 3–5).
  */
@@ -112,7 +114,7 @@ function init(cb) {
     var names = Object.keys(SMALL), i = 0;
     (function next(e) {
       if (e) return done(e);
-      if (i >= names.length) return migrate(done);
+      if (i >= names.length) return cleanRoot(function () { migrate(function (me) { if (!me) gcSoon(0); done(me); }); });
       loadStore(names[i++], next);
     })();
   });
@@ -127,7 +129,8 @@ function init(cb) {
  * Перенос с 1.0.7–1.0.9 (самописный SQLite): настройки — из perfecttv-settings.sqlite3, плейлисты,
  * каналы, источники и сопоставления — из perfecttv.sqlite3, если он не больше 40 МБ (больший
  * разбирается целиком в память — на ТВ это риск; тогда плейлисты добавить заново).
- * Программа не переносится — она скачается снова. Старые файлы удаляются после переноса.
+ * Программа не переносится — она скачается снова. Старые файлы удаляются после переноса
+ * (и больший 40 МБ — без переноса).
  */
 function migrate(cb) {
   // раскладка программы 1.1.0 — удалить и сбросить источники: программа скачается заново
@@ -152,8 +155,9 @@ function migrateSqlite(cb) {
       fs.stat(file, function (se, st) {
         if (se) return next();
         if (st.size > maxBytes || !codec) {
-          console.warn('filekv: old database skipped', file, st.size);
-          return fs.rename(file, file + '.old', function () { next(); });
+          // больше 40 МБ — это почти целиком старая программа: не переносить и не хранить
+          console.warn('filekv: old database removed without import', file, st.size);
+          return fs.unlink(file, function () { next(); });
         }
         fs.readFile(file, function (re, buf) {
           if (re) return next();
@@ -187,6 +191,88 @@ function migrateSqlite(cb) {
       });
     });
   });
+}
+
+/**
+ * Хвосты прежних запусков в корне: временные файлы атомарной записи (сервис убили между записью
+ * и rename) и .old от 1.1.0–1.1.1 (старая база больше 40 МБ переименовывалась, а не удалялась).
+ */
+function cleanRoot(cb) {
+  fs.readdir(ROOT, function (e, names) {
+    if (e) return cb();
+    var i = 0;
+    (function next() {
+      if (i >= names.length) return cb();
+      var n = names[i++];
+      if (!/\.tmp$/.test(n) && !/\.sqlite3\.old$/.test(n)) return next();
+      console.log('filekv: removed leftover', n);
+      fs.unlink(path.join(ROOT, n), function () { next(); });
+    })();
+  });
+}
+
+// ------------------------------------------------------------ уборка
+
+var EPG_BOTH = 1, EPG_USER_ONLY = 2;   // как в src/data/models.ts
+var GC_DELAY = 5000;
+var gcTimer = null;
+
+/** Источники программы плейлиста — те же правила, что epgUrlsOf (src/data/models.ts) */
+function epgUrlsOf(p) {
+  var user = Array.isArray(p.userEpg) ? p.userEpg : [], header = Array.isArray(p.headerEpg) ? p.headerEpg : [];
+  if (p.epgMode === EPG_USER_ONLY) return user.slice();
+  if (p.epgMode === EPG_BOTH) {
+    var out = user.slice();
+    for (var i = 0; i < header.length; i++) if (out.indexOf(header[i]) < 0) out.push(header[i]);
+    return out;
+  }
+  return header.length ? header.slice() : user.slice();
+}
+
+/**
+ * Удалить всё, на что не ссылается ни один плейлист: папки источников prog2/<h>, записи sources
+ * и epgch этих источников, сопоставления (map) удалённых плейлистов и источников, которых у
+ * плейлиста больше нет, каналы удалённых плейлистов. Идёт в очереди программы — не одновременно
+ * с записью пачек. cb(err, {sources: удалено папок, records: удалено записей}).
+ */
+function gc(cb) {
+  cb = cb || function () { /* */ };
+  init(function (ie) {
+    if (ie) return cb(ie);
+    progRun(function (done) {
+      var pls = stores.playlists.data, used = {}, usedHash = {}, byPid = {}, k, u, removed = 0;
+      for (k in pls) if (Object.prototype.hasOwnProperty.call(pls, k)) {
+        var p = pls[k].v || {}, urls = epgUrlsOf(p);
+        byPid[String(pls[k].k)] = {};
+        for (u = 0; u < urls.length; u++) { used[urls[u]] = true; usedHash[pf.h(urls[u])] = true; byPid[String(pls[k].k)][urls[u]] = true; }
+      }
+      function drop(store, test) {
+        var d = stores[store].data, n = 0;
+        for (var dk in d) if (Object.prototype.hasOwnProperty.call(d, dk) && test(d[dk].k)) { delete d[dk]; n++; }
+        if (n) { removed += n; touch(store); }
+      }
+      drop('sources', function (key) { return !used[key]; });
+      drop('epgch', function (key) { return !Array.isArray(key) || !used[key[0]]; });
+      drop('map', function (key) { return !Array.isArray(key) || !byPid[String(key[0])] || !byPid[String(key[0])][key[1]]; });
+      drop('channels', function (key) { return !byPid[String(key)]; });
+      pf.sourceHashes(function (hashes) {
+        var gone = hashes.filter(function (hs) { return !usedHash[hs]; }), i = 0;
+        (function next() {
+          if (i < gone.length) return rmrf(path.join(PROG, gone[i++]), function () { next(); });
+          if (gone.length || removed) console.log('filekv: gc removed', gone.length, 'sources,', removed, 'records');
+          done();
+          cb(null, { sources: gone.length, records: removed });
+        })();
+      });
+    });
+  });
+}
+
+/** Уборка через delay мс (повторные вызовы откладывают её — плейлисты часто меняются пачкой) */
+function gcSoon(delay) {
+  if (gcTimer) clearTimeout(gcTimer);
+  gcTimer = setTimeout(function () { gcTimer = null; gc(); }, delay === undefined ? GC_DELAY : delay);
+  if (gcTimer.unref) gcTimer.unref();
 }
 
 // ------------------------------------------------------------ программа
@@ -268,8 +354,10 @@ function dispatch(op, q, cb) {
     if (op === 'status') {
       var n = 0;
       for (var s in stores) n += Object.keys(stores[s].data).length;
-      return cb(null, { backend: 'files', path: ROOT, entries: n });
+      if (!q.size) return cb(null, { backend: 'files', path: ROOT, entries: n });
+      return pf.du(ROOT, function (bytes) { cb(null, { backend: 'files', path: ROOT, entries: n, bytes: bytes }); });
     }
+    if (op === 'gc') return gc(cb);
     if (op === 'reset') {
       for (var name in stores) { stores[name].data = {}; touch(name); }
       return progRun(function (done) { rmrf(PROG, function () { mkdirp(PROG, function (e) { done(); cb(e, { ok: !e }); }); }); });
@@ -301,7 +389,13 @@ function dispatch(op, q, cb) {
             }
             if (!pend) { done(); cb(firstErr, { written: count }); }
           };
-          if (q.prune) pf.pruneSource(q.prune.url, q.prune.loadId, finish); else finish(null);
+          // конец загрузки источника: и уборка источников, которые плейлисты больше не используют
+          if (!q.prune) return finish(null);
+          // каналы XMLTV, которых нет в этой загрузке (пропали из файла), — тоже
+          var ec = stores.epgch.data, url = q.prune.url, gone = 0;
+          for (var ek in ec) if (Object.prototype.hasOwnProperty.call(ec, ek) && Array.isArray(ec[ek].k) && ec[ek].k[0] === url && (!ec[ek].v || ec[ek].v.l !== q.prune.loadId)) { delete ec[ek]; gone++; }
+          if (gone) { touch('epgch'); saveStore('epgch'); }
+          pf.pruneSource(url, q.prune.loadId, function (pe) { gcSoon(0); finish(pe); });
         });
       });
     }
@@ -323,6 +417,7 @@ function dispatch(op, q, cb) {
       for (i = 0; i < items.length; i++) if (!items[i] || items[i].key === undefined || items[i].value === undefined) return cb(error('invalid record'));
       if (store === 'prog') return progRun(function (done) { pf.appendPacks(items, function (e) { done(); cb(e, { written: items.length }); }); });
       for (i = 0; i < items.length; i++) stores[store].data[id(items[i].key)] = { k: items[i].key, v: items[i].value };
+      if (store === 'playlists') gcSoon();
       // настройки — с задержкой (часто и мелко); остальное — дождаться записи
       if (store === 'settings') { touch(store); return cb(null, { written: items.length }); }
       touch(store, function (e) { cb(e, { written: items.length }); });
@@ -333,6 +428,7 @@ function dispatch(op, q, cb) {
       if (!Array.isArray(keys)) return cb(error('invalid keys'));
       if (store === 'prog') return progRun(function (done) { deletePacks(keys, function (e) { done(); cb(e, { removed: true }); }); });
       for (i = 0; i < keys.length; i++) delete stores[store].data[id(keys[i])];
+      if (store === 'playlists') gcSoon();
       if (store === 'settings') { touch(store); return cb(null, { removed: true }); }
       touch(store, function (e) { cb(e, { removed: true }); });
       return;
@@ -349,6 +445,7 @@ function dispatch(op, q, cb) {
       }
       var d = stores[store].data;
       for (var dk in d) if (Object.prototype.hasOwnProperty.call(d, dk) && inRange(d[dk].k, range)) delete d[dk];
+      if (store === 'playlists') gcSoon();
       touch(store, function (e) { cb(e, { removed: true }); });
       return;
     }
@@ -368,4 +465,4 @@ function flush(cb) {
   if (!pend && cb) cb();
 }
 
-module.exports = { dispatch: dispatch, flush: flush, valid: valid, root: ROOT, finalize: pf.finalizeSource };
+module.exports = { dispatch: dispatch, flush: flush, gc: gc, valid: valid, root: ROOT, finalize: pf.finalizeSource };

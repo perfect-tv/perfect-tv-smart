@@ -114,6 +114,8 @@ function request(op: string, data?: any): Promise<any> {
 }
 export const SocketDb = {
   available(): Promise<boolean> { return connect(); },
+  /** Сколько занимает хранилище на диске ТВ, байт (сервис обходит папку — не на каждый кадр) */
+  storageBytes(): Promise<number> { return request('status', { size: true }).then(function (r) { return typeof r.bytes === 'number' ? r.bytes : -1; }); },
   epgStart(options: any): Promise<any> { return request('epgStart', options); },
   epgStatus(jobId: number): Promise<any> { return request('epgStatus', { jobId: jobId }); },
   epgRematch(url: string, wanted: any[]): Promise<void> {

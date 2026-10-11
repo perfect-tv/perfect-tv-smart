@@ -225,7 +225,7 @@ function execute(job, q) {
         parser = new parserLib.XmltvParser(q.langs || ['ru', 'en'],
           function (c) {
             channels.push(c);
-            channelRows.push(record('epgch', { s: url, id: c.id, names: c.names, icon: c.icon }));
+            channelRows.push(record('epgch', { s: url, id: c.id, names: c.names, icon: c.icon, l: loadId }));
           }, rebuild,
           function (id) { return selected[id] === true; },
           function (p) {

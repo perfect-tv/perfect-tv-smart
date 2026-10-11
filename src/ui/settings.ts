@@ -450,11 +450,19 @@ export class SettingsLayer implements Layer {
     tv.push(layer);
   }
 
+  private storageBytes = -1;
+  private storageAsked = 0;
+
   private pageNetwork: SItem[] {
     const self = this;
+    // items вызывается на каждой перерисовке — спрашивать сервис не чаще раза в 10 с
+    if (Storage2.sqliteActive && Date.now - this.storageAsked > 10000) this.storageAsked = Date.now, SocketDb.storageBytes.then(function (b) { self.storageBytes = b; self.refresh; }, function  { /* */ });
     return [
       { name: str('proxy_status'), value: function  { return Net.proxyAvailable? str('proxy_running'): Net.lunaAvailable? str('proxy_luna'): str('proxy_absent'); }, desc: str('proxy_status_sub'), action: function  { Net.checkProxy.then(function  { self.refresh; }); } },
-      { name: str('sqlite_storage'), desc: str('sqlite_storage_sub'), value: function  { return Storage2.sqliteActive? str('sqlite_ready'): str('sqlite_not_ready'); }, action: function  { SocketDb.available.then(function  { self.refresh; }); } },
+      { name: str('sqlite_storage'), desc: str('sqlite_storage_sub'), value: function  {
+        if (!Storage2.sqliteActive) return str('sqlite_not_ready');
+        return self.storageBytes >= 0? str('sqlite_ready') + ' · ' + str('size_mb', (self.storageBytes / 1048576).toFixed(1)): str('sqlite_ready');
+      }, action: function  { SocketDb.available.then(function  { return SocketDb.storageBytes; }).then(function (b) { self.storageBytes = b; self.refresh; }, function  { self.refresh; }); } },
       { name: str('proxy_mode'), desc: str('proxy_mode_sub'), values: [str('proxy_auto'), str('proxy_always'), str('proxy_never')], index: function  { return Prefs.proxyMode; }, pick: function (i) { Prefs.proxyMode = i; } },
       { name: str('platform'), value: function  { return Platform.isWebOS? 'webOS ' + (Platform.version || ''): navigator.userAgent.replace(/^.*(Chrom(e|ium)\/[\d.]+).*$/, '$1'); }, note: false },
     ];

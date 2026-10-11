@@ -61,6 +61,9 @@ var wanted=[{pid:1,channels:[{key:'channel_one',tvgId:'tv1',tvgName:'',name:'TV 
 server.listen(0,'127.0.0.1',async function(){
   try {
     var url='http://127.0.0.1:'+server.address().port+'/guide.xml.gz';
+    var base='http://127.0.0.1:'+server.address().port;
+    // плейлист со всеми источниками теста: иначе уборка удалит их как ненужные
+    await call('put',{store:'playlists',items:[{key:1,value:{id:1,epgMode:2,headerEpg:[],userEpg:[url,base+'/guide.xml.zip',base+'/stored.zip',base+'/empty.xml']}}]});
     var initial=await svc('epgStart',{url:url,wanted:wanted,maxArchiveDays:7,langs:['ru','en'],force:true});
     var status=await wait(initial.jobId);
     assert.strictEqual(status.meta.status,2,JSON.stringify(status));

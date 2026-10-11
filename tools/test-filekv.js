@@ -39,6 +39,9 @@ function run() {
     return q('get', { store: 'sources', key: 'old' });
   }).then(function (r) {
     assert.strictEqual(r.record, null, 'источники сброшены — программа скачается заново');
+    // источники, на которые ссылается плейлист (иначе уборка их удалит)
+    return q('put', { store: 'playlists', items: [{ key: 1, value: { id: 1, name: 'Old', epgMode: 2, userEpg: ['src', 's2'], headerEpg: [] } }] });
+  }).then(function () {
     // программа: две загрузки, вторая с удалением первой
     var p = function (l, n, x) { return { key: ['src', x, l, n], value: { s: 'src', x: x, l: l, n: n, data: 'L' + l + 'N' + n } }; };
     return q('epgBatch', { groups: { prog: [p(1, 0, 'a'), p(1, 0, 'b')], sources: [{ key: 'src', value: { url: 'src', loadId: 1 } }] } });

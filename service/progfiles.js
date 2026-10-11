@@ -142,7 +142,19 @@ function appendPacks(rows, cb) {
   })();
 }
 
-/** Удалить у источника s файлы всех загрузок, кроме keepLoad */
+/** Убрать папку канала и её корзину, если опустели (непустую rmdir не тронет) */
+function rmdirEmpty(dir, cb) {
+  fs.rmdir(dir, function (e) {
+    if (e) return cb();
+    fs.rmdir(path.dirname(dir), function () { cb(); });
+  });
+}
+
+/**
+ * Удалить у источника s файлы всех загрузок, кроме keepLoad, и брошенные .tmp (сервис убили
+ * посреди сборки); опустевшие папки каналов и корзины — тоже. Канал, пропавший из XMLTV или из
+ * плейлиста, уходит здесь же: его файлы — от прежней загрузки.
+ */
 function pruneSource(s, keepLoad, cb) {
   var keep = String(keepLoad);
   channelDirs(h(s), function (dirs) {
@@ -154,13 +166,32 @@ function pruneSource(s, keepLoad, cb) {
         if (e) return next();
         var j = 0;
         (function del() {
-          if (j >= names.length) return next();
+          if (j >= names.length) return rmdirEmpty(dir, next);
           var n = names[j++];
-          if (loadOf(n) === keep) return del();
+          if (loadOf(n) === keep && !/\.tmp$/.test(n)) return del();
           fs.unlink(path.join(dir, n), function () { del(); });
         })();
       });
     })();
+  });
+}
+
+/** Папки источников в prog2 (хэши) */
+function sourceHashes(cb) { fs.readdir(PROG, function (e, names) { cb(e ? [] : names); }); }
+
+/** Размер папки (байт), для «Хранилище» в настройках */
+function du(p, cb) {
+  fs.lstat(p, function (e, st) {
+    if (e) return cb(0);
+    if (!st.isDirectory()) return cb(st.size);
+    fs.readdir(p, function (re, names) {
+      if (re) return cb(0);
+      var total = 0, i = 0;
+      (function next() {
+        if (i >= names.length) return cb(total);
+        du(path.join(p, names[i++]), function (n) { total += n; next(); });
+      })();
+    });
   });
 }
 
@@ -245,5 +276,5 @@ function serve(s, x, out, headers) {
 module.exports = {
   ROOT: ROOT, PROG: PROG, h: h, sourceDir: sourceDir, chanDir: chanDir, mkdirp: mkdirp, rmrf: rmrf,
   channelDirs: channelDirs, readDir: readDir, readChannel: readChannel, appendPacks: appendPacks,
-  pruneSource: pruneSource, finalizeSource: finalizeSource, serve: serve, plainPack: plainPack
+  pruneSource: pruneSource, sourceHashes: sourceHashes, du: du, finalizeSource: finalizeSource, serve: serve, plainPack: plainPack
 };
