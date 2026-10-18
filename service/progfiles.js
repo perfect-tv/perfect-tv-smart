@@ -346,10 +346,15 @@ function num(v) { if (v === undefined || v === null || v === '') return undefine
  * как есть с Content-Encoding: gzip; иначе (несколько суток, идёт загрузка, файлы двух загрузок)
  * — собрать здесь и отдать обычным JSON (по локальному адресу сжатие не нужно).
  */
-function serve(s, x, out, headers, a0, b0) {
+function serve(s, x, out, headers, a0, b0, daysOnly) {
   if (typeof s !== 'string' || typeof x !== 'string') {
     out.writeHead(400, headers); return out.end('[]');
   }
+  if (daysOnly) return days(s, x, function (list) {
+    headers['Content-Type'] = 'application/json';
+    out.writeHead(200, headers);
+    out.end(JSON.stringify(list));
+  });
   var a = num(a0), b = num(b0);
   var dir = chanDir(s, x);
   headers['Content-Type'] = 'application/json';
@@ -372,6 +377,40 @@ function serve(s, x, out, headers, a0, b0) {
     (function next() {
       if (i >= names.length) { out.writeHead(200, headers); return out.end(JSON.stringify(packs)); }
       filePacks(dir, names[i++], a, b, function (list) { packs = packs.concat(list); next(); });
+    })();
+  });
+}
+
+/**
+ * Оглавление канала: [[сутки, передач], …] по возрастанию — для вкладок дат (расписание грузит
+ * сутки по мере листания, а даты показывает все). У .epg — только его оглавление, без распаковки.
+ */
+function days(s, x, cb) {
+  var dir = chanDir(s, x), count = {};
+  function add(d, n) { if (!count[d] || count[d] < n) count[d] = n; }   // две загрузки — не складывать
+  fs.readdir(dir, function (e, names) {
+    names = (names || []).filter(function (n) { return PACK_FILE.test(n); });
+    var i = 0;
+    (function next() {
+      if (i >= names.length) {
+        var out = Object.keys(count).map(function (d) { return [+d, count[d]]; });
+        out.sort(function (a, b) { return a[0] - b[0]; });
+        return cb(out);
+      }
+      var name = names[i++];
+      if (/\.epg$/.test(name)) {
+        return openEpg(path.join(dir, name), function (oe, f) {
+          if (oe) return next();
+          for (var k = 0; k < f.index.length; k++) add(f.index[k][0], f.index[k][3]);
+          fs.close(f.fd, function () { next(); });
+        });
+      }
+      filePacks(dir, name, undefined, undefined, function (packs) {
+        var c = {};
+        for (var k = 0; k < packs.length; k++) for (var r = 0; r < packs[k].p.length; r++) { var d = dayOf(packs[k].p[r][0]); c[d] = (c[d] || 0) + 1; }
+        for (var dd in c) add(+dd, c[dd]);
+        next();
+      });
     })();
   });
 }
@@ -413,6 +452,6 @@ function search(items, words, max, stopped, cb) {
 module.exports = {
   ROOT: ROOT, PROG: PROG, h: h, sourceDir: sourceDir, chanDir: chanDir, mkdirp: mkdirp, rmrf: rmrf,
   channelDirs: channelDirs, readDir: readDir, readChannel: readChannel, appendPacks: appendPacks,
-  pruneSource: pruneSource, sourceHashes: sourceHashes, du: du, finalizeSource: finalizeSource, serve: serve, search: search, plainPack: plainPack,
+  pruneSource: pruneSource, sourceHashes: sourceHashes, du: du, finalizeSource: finalizeSource, serve: serve, search: search, days: days, plainPack: plainPack,
   encodeEpg: encodeEpg, readEpg: readEpg, dayOf: dayOf
 };

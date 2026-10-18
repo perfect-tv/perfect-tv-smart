@@ -321,7 +321,7 @@ function handler(req, out) {
   if (req.method === 'OPTIONS') { out.writeHead(204, cors({})); return out.end; }
   switch (u.pathname) {
     case '/ping': out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true, v: VERSION }));
-    case '/prog': return require('./progfiles.js').serve(q.s, q.x, out, cors({}), q.a, q.b);
+    case '/prog': return require('./progfiles.js').serve(q.s, q.x, out, cors({}), q.a, q.b, q.days === '1');
     case '/progsearch': return progSearch(req, out);
     case '/ua': setUserAgent(q.v); out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true }));
     case '/qr/new': return qr.create(function (err, result) { qr.json(out, err? 503: 200, err? { returnValue: false, error: err.message || String(err) }: result); });

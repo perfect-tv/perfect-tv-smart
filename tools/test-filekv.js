@@ -87,6 +87,9 @@ function run() {
       return new Promise(function (res) { pf.readEpg(path.join(pf.chanDir('s2', 'c9'), '5.epg'), 1, 3, function (e, list) { res(list); }); });
     }).then(function (list) {
       assert.deepStrictEqual(list.map(function (pk) { return pk.n + ':' + pk.p.map(function (r) { return r[2]; }).join(); }), ['2:W'], 'сутки 1…3 — только W (сутки 2)');
+      return new Promise(function (res) { pf.days('s2', 'c9', res); });
+    }).then(function (d) {
+      assert.deepStrictEqual(d, [[0, 2], [2, 1]], 'оглавление суток канала');
       return new Promise(function (res) { pf.search([['s2', 'c9', 0, 5, 7]], ['u'], 10, function () { return false; }, res); });
     }).then(function (hits) {
       assert.deepStrictEqual(hits.map(function (x) { return x[0] + ':' + x[1].p[0][2]; }), ['7:U'], 'поиск в сервисе');

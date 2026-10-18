@@ -4,6 +4,7 @@ import { NUMBER_NEAR_NAME, Prefs } from '../core/prefs';
 import { Group } from '../data/catalog';
 import { Channel, Playlist, Programme } from '../data/models';
 import { Reminders } from '../data/reminders';
+import { DayWindow } from './daywindow';
 import { Cell, Cells, SLOT } from './cells';
 import { Anim, drawIcon, el } from './dom';
 import { Fmt } from './fmt';
@@ -47,6 +48,10 @@ export class GuideLayer implements Layer {
   private plIndex = 0;
   private plKeep = -1;
   private plRev = -1;
+  /** сутки списка передач: грузятся вокруг фокуса, а не все сразу */
+  private dw = new DayWindow;
+  /** выбрали дату, сутки которой ещё не пришли */
+  private plPending: number | null = null;
   private plJump = true;
   private plDays: number[] = [];
   private plDayLabels: [string, string][] = [];
@@ -179,36 +184,62 @@ export class GuideLayer implements Layer {
     const ch = this.focused;
     if (!ch) { this.plCh = null; this.plLast = null; this.plRows = []; this.plDays = []; this.plDayLabels = []; return; }
     // список перестраивается, когда пришли сутки этого канала (они приходят кусками)
-    const rev = this.tv.repo.revOf(ch);
+    const repo = this.tv.repo;
+    const rev = repo.revOf(ch);
     if (ch === this.plCh && rev === this.plRev) return;
     const same = ch === this.plCh && this.plRows.length > 0;
     const keep = same? this.plRows[Math.min(this.plIndex, this.plRows.length - 1)].start: ch === this.plLast? this.plKeep: -1;
     this.plKeep = -1;
-    this.plRev = rev;
-    const now = Clock.now;
-    const from = Fmt.dayStart(now - Math.max(ch.archiveDays, 1) * 86400);
-    const to = Fmt.dayStart(now) + 8 * 86400;
-    this.plRows = this.tv.repo.range(ch, from, to).filter(function (p) { return p.start >= from; });
+    // другой канал: окно суток — заново, догруженное у прежнего — из памяти
+    if (this.dw.ch!== ch) {
+      this.dw.release(repo);
+      this.dw.reset(ch, keep >= 0? keep: Clock.now);
+      this.plPending = null;
+    }
+    this.plRev = repo.revOf(ch);
+    this.plRows = this.dw.programmes(repo);
     this.plCh = ch;
     this.plLast = ch;
     const days: number[] = [];
     const labels: [string, string][] = [];
-    for (let i = 0; i < this.plRows.length; i++) {
-      const d = Fmt.dayIndex(this.plRows[i].start);
-      if (!days.length || days[days.length - 1]!== d) {
-        days.push(d);
-        const t = Fmt.dayTabShort(this.plRows[i].start).split('\n');
-        labels.push([t[0], t[1] || '']);
-      }
-    }
+    const addDay = function (start: number) {
+      days.push(Fmt.dayIndex(start));
+      const t = Fmt.dayTabShort(start).split('\n');
+      labels.push([t[0], t[1] || '']);
+    };
+    // даты — все сутки с программой (оглавление сервиса), а не только загруженные
+    const all = this.dw.days(repo);
+    if (all) for (let i = 0; i < all.length; i++) addDay(all[i]);
+    else for (let i = 0; i < this.plRows.length; i++) if (days.indexOf(this.dayOf(i)) < 0) addDay(this.plRows[i].start);
     this.plDays = days;
     this.plDayLabels = labels;
-    if (keep >= 0) {
+    if (this.plPending!== null && this.dayTarget(this.plPending) >= 0) {
+      this.plIndex = this.dayTarget(this.plPending);
+      this.plPending = null;
+    } else if (keep >= 0) {
       let k = 0;
       for (let i = 0; i < this.plRows.length; i++) if (this.plRows[i].start <= keep) k = i;
       this.plIndex = k;
     } else { this.plIndex = this.liveIndex; this.plJump = true; }
-    this.dateIndex = this.plRows.length? Math.max(0, days.indexOf(this.dayOf(Math.min(this.plIndex, this.plRows.length - 1)))): 0;
+    const di = this.plPending!== null? this.plPending: this.plRows.length? this.dayOf(Math.min(this.plIndex, this.plRows.length - 1)): -1;
+    this.dateIndex = Math.max(0, days.indexOf(di));
+  }
+
+  /** К дате k: её сутки не загружены — окно вокруг неё, фокус — когда придут */
+  private goDay(k: number) {
+    const day = this.plDays[k];
+    const t = this.dayTarget(day);
+    if (t >= 0) { this.plIndex = t; return; }
+    const approx = day * 86400 + new Date(day * 86400 * 1000).getTimezoneOffset * 60;
+    this.dw.center(Fmt.dayStart(approx + 12 * 3600));
+    this.plPending = day;
+    this.plRev = -1;
+  }
+
+  /** Фокус ушёл к краю загруженных суток — догрузить ещё двое */
+  private nearEdge {
+    const p = this.plRows[this.plIndex];
+    if (p && this.dw.near(p.start)) this.plRev = -1;
   }
 
   private toPrograms {
@@ -227,6 +258,7 @@ export class GuideLayer implements Layer {
     else if (name === 'pgup') this.plIndex = Math.max(0, this.plIndex - 8);
     else if (name === 'pgdown') this.plIndex = Math.min(n - 1, this.plIndex + 8);
     else if (name === 'left') this.zone = Zone.CHANNELS;
+    if (name === 'up' || name === 'down' || name === 'pgup' || name === 'pgdown') this.nearEdge;
     else if (name === 'right') { this.dateIndex = Math.max(0, this.plDays.indexOf(this.dayOf(this.plIndex))); this.zone = Zone.DATES; }
     this.redraw;
   }
@@ -242,7 +274,7 @@ export class GuideLayer implements Layer {
     const k = Math.max(0, Math.min(this.plDays.length - 1, this.dateIndex + d));
     if (k === this.dateIndex) return;
     this.dateIndex = k;
-    this.plIndex = Math.max(0, this.dayTarget(this.plDays[k]));
+    this.goDay(k);
   }
 
   private dayTarget(day: number): number {
@@ -1152,7 +1184,7 @@ export class GuideLayer implements Layer {
       const viewH = this.listBottom - this.bodyTop;
       const off = Math.max(0, Math.min(cur * step - viewH / 2 + 1.8 * U.em, Math.max(0, this.plDays.length * step - viewH)));
       const k = Math.floor((y - this.bodyTop + off) / step);
-      if (k >= 0 && k < this.plDays.length) { this.dateIndex = k; this.plIndex = Math.max(0, this.dayTarget(this.plDays[k])); this.zone = Zone.PROGRAMS; }
+      if (k >= 0 && k < this.plDays.length) { this.dateIndex = k; this.goDay(k); this.zone = Zone.PROGRAMS; }
       this.redraw;
       return;
     }

@@ -38,6 +38,9 @@ export class Repo {
   private loadingOf: { [ck: string]: number } = {};
   private rev: { [ck: string]: number } = {};
   private tick = 0;
+  /** оглавление суток канала (daysOf) */
+  private dayIndex: { [ck: string]: number[][] } = {};
+  private dayIndexLoading: { [ck: string]: boolean } = {};
   /** передач во всех кусках */
   private total = 0;
   private queued: { [url: string]: boolean } = {};
@@ -389,6 +392,55 @@ export class Repo {
     return out;
   }
 
+  /**
+   * Сутки источника с программой канала: [[сутки UTC, передач], …] — для вкладок дат (сами
+   * сутки грузятся по мере листания). null — ещё не известно (запрос пошёл, придёт 'epg').
+   */
+  daysOf(ch: Channel): number[][] | null {
+    const m = this.mapping(ch.playlistId);
+    const e = m ? m[ch.key] : null;
+    if (!e) return [];
+    const ck = ch.playlistId + ':' + ch.key;
+    const known = this.dayIndex[ck];
+    if (known !== undefined) return known;
+    if (this.dayIndexLoading[ck]) return null;
+    this.dayIndexLoading[ck] = true;
+    const self = this;
+    const done = function (list: number[][] | null) {
+      delete self.dayIndexLoading[ck];
+      if (list) self.dayIndex[ck] = list;
+      self.rev[ck] = (self.rev[ck] || 0) + 1;
+      Bus.emit('epg', ch.key);
+    };
+    if (!Net.proxyAvailable) { done(null); return null; }
+    const r = new XMLHttpRequest();
+    r.open('GET', PROXY + '/prog?days=1&s=' + encodeURIComponent(e[0]) + '&x=' + encodeURIComponent(e[1]), true);
+    r.timeout = 15000;
+    r.onload = function () { let v: any = null; try { v = r.status === 200 ? JSON.parse(r.responseText) : null; } catch (er) { v = null; } done(Array.isArray(v) ? v : null); };
+    r.onerror = r.ontimeout = function () { done(null); };
+    r.send();
+    return null;
+  }
+
+  /**
+   * Выбросить куски канала вне [from, to) (закрыли расписание, ушли с канала в гиде): сутки
+   * архива, догруженные при листании, больше не держат память.
+   */
+  release(ch: Channel, from: number, to: number) {
+    const ck = ch.playlistId + ':' + ch.key;
+    const shift = Math.round(ch.tvgShift * 3600);
+    const d0 = Math.floor((from - shift) / DAY) - 1, d1 = Math.floor((to - 1 - shift) / DAY);
+    const prefix = ck + '|';
+    for (const k in this.chunks) {
+      if (k.indexOf(prefix) !== 0) continue;
+      const d = +k.slice(prefix.length);
+      const c = this.chunks[k];
+      if (c.loading || (d >= d0 && d <= d1)) continue;
+      this.total -= c.list.length;
+      delete this.chunks[k];
+    }
+  }
+
   /** Номер изменения программы канала (растёт, когда пришли его сутки) — перестроить списки */
   revOf(ch: Channel): number { return this.rev[ch.playlistId + ':' + ch.key] || 0; }
 
@@ -429,6 +481,9 @@ export class Repo {
       if (c.loading) continue;
       if (c.s === url && (done || c.list.length === 0)) { this.total -= c.list.length; delete this.chunks[k]; }
     }
+    // оглавление суток — перечитать (по каналу на запрос, только у открытых расписаний); пока
+    // загрузка идёт — только пустые
+    for (const k in this.dayIndex) if (done || !this.dayIndex[k].length) delete this.dayIndex[k];
     // сопоставление могло дополниться
     for (const pid in this.mapFor) {
       if (done || Object.keys(this.mapFor[pid]).length === 0) delete this.mapFor[pid];
@@ -438,6 +493,7 @@ export class Repo {
 
   invalidateAll() {
     this.chunks = {};
+    this.dayIndex = {};
     this.total = 0;
     this.mapFor = {};
     Bus.emit('epg', null);

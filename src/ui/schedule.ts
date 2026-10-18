@@ -4,6 +4,7 @@ import { Bus } from '../data/bus';
 import { Channel } from '../data/models';
 import { inArchive, isMissed, Reminder, Reminders } from '../data/reminders';
 import { Cell, Cells, SLOT } from './cells';
+import { DayWindow } from './daywindow';
 import { Anim, el, icon, setText, toggle } from './dom';
 import { Fmt } from './fmt';
 import { Layer } from './layer';
@@ -62,6 +63,10 @@ export class ScheduleLayer implements Layer {
   private timer = 0;
   private onEpg:  => void;
   private onRem:  => void;
+  /** сутки, которые грузятся вокруг фокуса (канал целиком не держим) */
+  private dw = new DayWindow;
+  /** выбрали дату, сутки которой ещё не пришли — фокус на неё, когда придут */
+  private pendingDay: number | null = null;
 
   constructor(private tv: Tv, private ch: Channel | null, view: number, private onClose:  => void) {
     // сразу в документе: позиции строк нужны для прокрутки к идущей передаче
@@ -87,6 +92,7 @@ export class ScheduleLayer implements Layer {
     this.datesScroller = new Scroller(this.datesBox, bodyH, 'rgba(30,31,32,.94)');
     this.scroller = new Scroller(this.listBox, bodyH, 'rgba(30,31,32,.94)');
     this.tab = ch? view: 1;
+    if (ch) this.dw.reset(ch, tv.state.channel === ch? tv.position: Clock.now);
     const self = this;
     this.onEpg = function  { if (self.tab === 0) self.rebuild(true); };
     this.onRem = function  { self.renderTabs; if (self.tab === 1) self.rebuild(true); };
@@ -160,8 +166,7 @@ export class ScheduleLayer implements Layer {
     const tm = Clock.now;
     const days = ch.archiveDays;
     const archFrom = tm - days * 86400;
-    const from = Fmt.dayStart(tm - Math.max(days, 1) * 86400);
-    const to = Fmt.dayStart(tm) + 8 * 86400;
+    const from = this.dw.lo, to = this.dw.hi;
     const st = this.tv.state;
     const playingPos = st.channel === ch? this.tv.position: -1;
     const list = Cells.cells(this.tv.repo.range(ch, from, to), from, to).filter(function (c) {
@@ -240,26 +245,50 @@ export class ScheduleLayer implements Layer {
       const e = el('div', 'empty', this.tab === 0? (this.tv.repo.epgLoading? str('programme_is_loading'): str('no_programme')): str('no_reminders_add_them_in_the_card_of'), inner);
       e.style.whiteSpace = 'pre-line';
     }
-    // даты
+    // даты: все сутки с программой (оглавление сервиса), а не только загруженные
     this.days = [];
-    for (let i = 0; i < this.rows.length; i++) if (this.rows[i].sep) this.days.push({ day: this.rows[i].day, label: Fmt.dayTab(this.rows[i].start) });
+    const all = this.tab === 0 && this.ch? this.dw.days(this.tv.repo): null;
+    if (all) {
+      for (let i = 0; i < all.length; i++) this.days.push({ day: Fmt.dayIndex(all[i]), label: Fmt.dayTab(all[i]) });
+      // архив без программы: загруженные сутки, которых нет в оглавлении
+      for (let i = 0; i < this.rows.length; i++) {
+        const r = this.rows[i];
+        if (r.sep &&!this.days.some(function (d) { return d.day === r.day; })) this.days.push({ day: r.day, label: Fmt.dayTab(r.start) });
+      }
+      this.days.sort(function (a, b) { return a.day - b.day; });
+    } else for (let i = 0; i < this.rows.length; i++) if (this.rows[i].sep) this.days.push({ day: this.rows[i].day, label: Fmt.dayTab(this.rows[i].start) });
     const dinner = this.datesScroller.inner;
     while (dinner.firstChild) dinner.removeChild(dinner.firstChild);
     for (let i = 0; i < this.days.length; i++) {
       const d = el('div', 'date', this.days[i].label, dinner);
       this.days[i].el = d;
-      (function (k) { d.addEventListener('click', function  { self.dateIndex = k; self.zone = Zone.LIST; self.index = self.dayTarget(self.days[k].day); self.focus; }); })(i);
+      (function (k) { d.addEventListener('click', function  { self.dateIndex = k; self.zone = Zone.LIST; self.goDay(k); }); })(i);
     }
     // фокус
     let idx = -1;
     if (keepStart!== null) {
       for (let i = 0; i < this.rows.length; i++) if (!this.rows[i].sep && this.rows[i].start <= keepStart) idx = i;
     }
+    if (this.pendingDay!== null) {
+      const t = this.dayTarget(this.pendingDay);
+      if (t >= 0) { idx = t; this.pendingDay = null; }
+    }
     if (idx < 0) idx = b.focus;
     if (idx < 0) for (let i = 0; i < this.rows.length; i++) if (!this.rows[i].sep) { idx = i; break; }
     this.index = idx;
     this.focus(true);
     this.renderHead;
+  }
+
+  /** К дате k: её сутки не загружены — окно вокруг неё, фокус — когда придут */
+  private goDay(k: number) {
+    const day = this.days[k].day;
+    const t = this.dayTarget(day);
+    if (t >= 0) { this.index = t; this.focus; return; }
+    const start = day * 86400 + new Date(day * 86400 * 1000).getTimezoneOffset * 60;
+    this.dw.center(Fmt.dayStart(start + 12 * 3600));
+    this.pendingDay = day;
+    this.rebuild(false);
   }
 
   private dayTarget(day: number): number {
@@ -336,6 +365,8 @@ export class ScheduleLayer implements Layer {
       if (!this.rows[i].sep) break;
     }
     this.index = i;
+    // у края загруженного — догрузить ещё двое суток (фокус останется на этой передаче)
+    if (this.tab === 0 && this.ch && this.dw.near(this.rows[i].start)) { this.rebuild(true); return; }
     this.focus;
   }
 
@@ -346,6 +377,7 @@ export class ScheduleLayer implements Layer {
         this.dateIndex = k;
         const t = this.dayTarget(this.days[k].day);
         if (t >= 0) this.index = t;
+        else if (this.tab === 0 && this.ch) { this.goDay(k); return; }
         // список прокручивается к заголовку дня
         const r = this.rows[this.index];
         const prev = this.rows[this.index - 1];
@@ -421,6 +453,7 @@ export class ScheduleLayer implements Layer {
 
   destroy {
     clearInterval(this.timer);
+    this.dw.release(this.tv.repo);
     Bus.off('epg', this.onEpg);
     Bus.off('reminders', this.onRem);
   }
