@@ -74,10 +74,11 @@ server.listen(0,'127.0.0.1',async function(){
     var channels=await call('list',{store:'epgch',range:{lower:[url],upper:[url,[]]}});
     assert.strictEqual(channels.records.length,2);
     var packs=await call('list',{store:'prog',range:{lower:[url],upper:[url,[]]}});
-    assert.strictEqual(packs.records.length,1);
-    var pack=packs.records[0].value;
-    // после загрузки канал собран в .json.gz: пачка — с готовым массивом p
-    var unpacked=pack.p || JSON.parse(zlib.gunzipSync(new Buffer(pack.data,'base64')).toString('utf8'));
+    // после загрузки канал собран в .epg по суткам: пачка на сутки, с готовым массивом p
+    assert(packs.records.length>=2 && packs.records.length<=4, 'пачки по суткам: '+packs.records.length);
+    var unpacked=[];
+    packs.records.forEach(function(r){ assert(r.value.p, 'p'); unpacked=unpacked.concat(r.value.p); });
+    unpacked.sort(function(a,b){return a[0]-b[0];});
     assert.strictEqual(unpacked.length,60);
     assert.strictEqual(unpacked[0][2], 'Test 0 & more');
     assert.strictEqual(unpacked[0][3],'');

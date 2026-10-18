@@ -979,7 +979,7 @@ export class Tv {
     const p = this.repo.at(ch, pos);
     this.moreKey = ch.key + ':' + (p ? p.start : 0);
     const from = p ? p.stop : pos;
-    const upcoming = this.repo.programmes(ch).filter(function (x) { return x.start >= from; }).slice(0, 4);
+    const upcoming = this.repo.upcoming(ch, from, 4);
     if (!p) { this.info.setMore(ch.group, '', '', ch, upcoming); return; }
     const tags = [Fmt.dayTimeRange(p.start, p.stop), p.category, p.subTitle].filter(function (s) { return !!s; }).join(' · ');
     this.info.setMore(tags, p.desc, p.icon, ch, upcoming);

@@ -289,6 +289,31 @@ setInterval(function  {
   }
 }, 30000).unref;
 
+/**
+ * POST /progsearch (text/plain — без предварительного OPTIONS): {w: [слова], c: [[s,x,a,b,i],…],
+ * max} → [[i, {l, p}], …]. Поиск по программе идёт в сервисе: браузеру не читать все каналы.
+ */
+function progSearch(req, out) {
+  var body = '', closed = false, size = 0, sent = false;
+  req.setEncoding('utf8');
+  // клиент ушёл (новый запрос поиска) — бросить перебор; 'close' ответа бывает и после end
+  out.on('close', function  { if (!sent) closed = true; });
+  req.on('data', function (c) { size += c.length; if (size > 4 * 1024 * 1024) { closed = true; req.destroy; } else body += c; });
+  req.on('end', function  {
+    if (closed) return;
+    var q;
+    try { q = JSON.parse(body); } catch (e) { return fail(out, 400, 'bad json'); }
+    var words = Array.isArray(q.w)? q.w.map(function (w) { return String(w).toLowerCase; }): [];
+    var items = Array.isArray(q.c)? q.c: [];
+    require('./progfiles.js').search(items, words, Math.min(2000, q.max || 400), function  { return closed; }, function (res) {
+      if (closed) return;
+      sent = true;
+      out.writeHead(200, cors({ 'Content-Type': 'application/json' }));
+      out.end(JSON.stringify(res));
+    });
+  });
+}
+
 function handler(req, out) {
   var u = urlMod.parse(req.url, true);
   var q = u.query || {};
@@ -296,7 +321,8 @@ function handler(req, out) {
   if (req.method === 'OPTIONS') { out.writeHead(204, cors({})); return out.end; }
   switch (u.pathname) {
     case '/ping': out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true, v: VERSION }));
-    case '/prog': return require('./progfiles.js').serve(q.s, q.x, out, cors({}));
+    case '/prog': return require('./progfiles.js').serve(q.s, q.x, out, cors({}), q.a, q.b);
+    case '/progsearch': return progSearch(req, out);
     case '/ua': setUserAgent(q.v); out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true }));
     case '/qr/new': return qr.create(function (err, result) { qr.json(out, err? 503: 200, err? { returnValue: false, error: err.message || String(err) }: result); });
     case '/qr/status': return qr.json(out, 200, qr.status(q.token));

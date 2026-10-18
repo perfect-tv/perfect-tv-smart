@@ -65,27 +65,34 @@ function run() {
     // сборка канала в один .json.gz и отдача по HTTP как есть
     var pf = require('../service/progfiles.js'), zlib = require('zlib');
     var gz = zlib.gzipSync(new Buffer(JSON.stringify([[1, 2, 'T']])));
-    return q('epgBatch', { groups: { prog: [{ key: ['s2', 'c9', 5, 0], value: { codec: 'gzip-json-b64-1', data: gz.toString('base64') } }, { key: ['s2', 'c9', 5, 1], value: { p: [[3, 4, 'U']] } }] } }).then(function () {
+    return q('epgBatch', { groups: { prog: [{ key: ['s2', 'c9', 5, 0], value: { codec: 'gzip-json-b64-1', data: gz.toString('base64') } }, { key: ['s2', 'c9', 5, 1], value: { p: [[3, 4, 'U'], [86400 * 2 + 5, 86400 * 2 + 9, 'W']] } }] } }).then(function () {
       var dir9 = pf.chanDir('s2', 'c9');
       assert.strictEqual(path.basename(path.dirname(dir9)).length, 2, 'корзина из двух знаков');
       return new Promise(function (res) { pf.finalizeSource('s2', 5, res); }).then(function () {
-        assert.deepStrictEqual(fs.readdirSync(dir9), ['5.json.gz'], 'канал собран в один .json.gz');
+        assert.deepStrictEqual(fs.readdirSync(dir9), ['5.epg'], 'канал собран в один .epg');
         return new Promise(function (res) {
           var head = {}, body = [];
           var out = { writeHead: function (c, hh) { head = hh; head.code = c; }, write: function (b) { body.push(b); }, end: function (b) { if (b) body.push(b); res({ head: head, body: Buffer.concat(body.map(function (x) { return Buffer.isBuffer(x) ? x : new Buffer(x); })) }); }, on: function () { return out; }, once: function () { return out; }, emit: function () {}, removeListener: function () {} };
           var stream = require('stream'), w = new stream.Writable({ write: function (c, e, cb) { body.push(c); cb(); } });
           w.writeHead = out.writeHead;
           w.on('finish', function () { res({ head: head, body: Buffer.concat(body) }); });
-          pf.serve('s2', 'c9', w, {});
+          pf.serve('s2', 'c9', w, {}, '0', '0');
         });
       });
     }).then(function (resp) {
       assert.strictEqual(resp.head['Content-Encoding'], 'gzip', 'Content-Encoding: gzip');
       var packs = JSON.parse(zlib.gunzipSync(resp.body).toString('utf8'));
-      assert.deepStrictEqual(packs.map(function (p) { return p.p[0][2]; }), ['T', 'U'], 'обе пачки, распакованы');
+      assert.deepStrictEqual(packs.length, 1, 'одни сутки — одна пачка');
+      assert.deepStrictEqual(packs[0].p.map(function (r) { return r[2]; }), ['T', 'U'], 'передачи суток 0 из обеих пачек');
+      return new Promise(function (res) { pf.readEpg(path.join(pf.chanDir('s2', 'c9'), '5.epg'), 1, 3, function (e, list) { res(list); }); });
+    }).then(function (list) {
+      assert.deepStrictEqual(list.map(function (pk) { return pk.n + ':' + pk.p.map(function (r) { return r[2]; }).join(); }), ['2:W'], 'сутки 1…3 — только W (сутки 2)');
+      return new Promise(function (res) { pf.search([['s2', 'c9', 0, 5, 7]], ['u'], 10, function () { return false; }, res); });
+    }).then(function (hits) {
+      assert.deepStrictEqual(hits.map(function (x) { return x[0] + ':' + x[1].p[0][2]; }), ['7:U'], 'поиск в сервисе');
       return q('list', { store: 'prog', range: { lower: ['s2', 'c9'], upper: ['s2', 'c9', []] } });
     }).then(function (r2) {
-      assert.strictEqual(r2.records.length, 2, 'чтение собранного канала по WebSocket');
+      assert.strictEqual(r2.records.length, 2, 'чтение собранного канала по WebSocket (двое суток)');
       return q('put', { store: 'channels', items: [{ key: 7, value: { pid: 7, list: [1, 2] } }] });
     });
   }).then(function () {

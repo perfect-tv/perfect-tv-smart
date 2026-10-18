@@ -13,25 +13,33 @@ import { Channel, epgUrlsOf, Playlist, Programme } from './models';
 import { UserData } from './userdata';
 import { Names } from './names';
 
-interface CachedEpg { s: string; list: Programme[]; loading: boolean }
+/** Кусок программы: сутки канала */
+interface Chunk { s: string; list: Programme[]; loading: boolean; used: number }
 
 /** Прогресс загрузки программы для строки в гиде */
 export interface EpgProgress { url: string; read: number; total: number; programmes: number }
 
-const CACHE_MAX = 300;
+/** Предел передач в памяти браузера (все куски вместе) */
+const PROG_MAX = 40000;
+const DAY = 86400;
 
 /**
  * Данные для интерфейса: плейлисты, каталог, обновление, программа каналов.
- * Программа читается из IndexedDB асинхронно: programmes(ch) отдаёт то, что уже в кэше
- * (пустой список — ещё нет), и запрашивает недостающее; по готовности — событие Bus 'epg'.
+ * Программа читается у сервиса асинхронно, по суткам: range(ch, from, to) отдаёт то, что уже
+ * в кэше (пустой список — ещё нет), и запрашивает недостающее; по готовности — событие Bus 'epg'.
  */
 export class Repo {
   private playlistsCache: Playlist[] = [];
   /** ключ канала → [источник, xml_id, иконка] по плейлистам; источники — по приоритету */
   private mapFor: { [pid: number]: { [key: string]: [string, string, string] } } = {};
   private mapLoading: { [pid: number]: boolean } = {};
-  private cache: { [ck: string]: CachedEpg } = {};
-  private cacheOrder: string[] = [];
+  /** «pid:ключ|сутки» → кусок */
+  private chunks: { [k: string]: Chunk } = {};
+  private loadingOf: { [ck: string]: number } = {};
+  private rev: { [ck: string]: number } = {};
+  private tick = 0;
+  /** передач во всех кусках */
+  private total = 0;
   private queued: { [url: string]: boolean } = {};
   private epgQueue: (() => Promise<void>)[] = [];
   private epgRunning = false;
@@ -307,84 +315,119 @@ export class Repo {
     return m ? !!m[ch.key] : null;
   }
 
-  private touch(ck: string) {
-    const i = this.cacheOrder.indexOf(ck);
-    if (i >= 0) this.cacheOrder.splice(i, 1);
-    this.cacheOrder.push(ck);
-    while (this.cacheOrder.length > CACHE_MAX) delete this.cache[this.cacheOrder.shift()!];
-  }
-
   /**
-   * Программа канала по возрастанию, без перекрытий, со сдвигом tvg-shift. Пустой список —
-   * программы нет или ещё не прочитана (тогда чтение запущено и придёт событие 'epg').
+   * Куски программы «канал + сутки» (сутки источника, UTC, по началу передачи). Канал целиком
+   * в памяти не держим: в среднем 650 передач, бывает 13 тысяч — на старых ТВ узкое место браузер.
+   * Недостающие сутки запрашиваются одним запросом на непрерывный отрезок; по готовности — 'epg'.
    */
-  programmes(ch: Channel): Programme[] {
-    const ck = ch.playlistId + ':' + ch.key;
-    const c = this.cache[ck];
-    if (c) return c.list;
-    const m = this.mapping(ch.playlistId);
-    if (!m) return [];
-    const e = m[ch.key];
-    if (!e) { this.cache[ck] = { s: '', list: [], loading: false }; this.touch(ck); return []; }
-    if (e[2] && !ch.epgIcon) ch.epgIcon = e[2];
-    const entry: CachedEpg = { s: e[0], list: [], loading: true };
-    this.cache[ck] = entry;
-    this.touch(ck);
+  private chunk(ck: string, d: number): Chunk | undefined { return this.chunks[ck + '|' + d]; }
+
+  private request(ch: Channel, e: [string, string, string], ck: string, a: number, b: number) {
     const shift = Math.round(ch.tvgShift * 3600);
     const self = this;
-    programmePacks(e[0], e[1]).then(function (packs) {
-      entry.list = merge(packs, shift);
-      entry.loading = false;
-      if (self.cache[ck] === entry) Bus.emit('epg', ch.key);
-    }, function () { entry.loading = false; });
-    return entry.list;
+    const made: Chunk[] = [];
+    for (let d = a; d <= b; d++) {
+      const c: Chunk = { s: e[0], list: [], loading: true, used: ++this.tick };
+      this.chunks[ck + '|' + d] = c;
+      made.push(c);
+    }
+    this.loadingOf[ck] = (this.loadingOf[ck] || 0) + 1;
+    fetchQueued(function () { return programmePacks(e[0], e[1], a, b); }).then(function (packs) {
+      const all = merge(packs, shift);
+      let n = 0;
+      for (let i = 0; i < all.length; i++) {
+        const d = Math.floor((all[i].start - shift) / DAY);
+        if (d < a || d > b) continue;
+        made[d - a].list.push(all[i]);
+        n++;
+      }
+      done(n);
+    }, function () { done(0); });
+    function done(n: number) {
+      for (let i = 0; i < made.length; i++) made[i].loading = false;
+      self.loadingOf[ck]--;
+      self.rev[ck] = (self.rev[ck] || 0) + 1;
+      self.total += n;
+      if (self.total > PROG_MAX) self.evict();
+      Bus.emit('epg', ch.key);
+    }
   }
+
+  /** Выбросить давно не нужные куски, пока передач в памяти не станет 70% предела */
+  private evict() {
+    const keys: string[] = [];
+    for (const k in this.chunks) if (!this.chunks[k].loading) keys.push(k);
+    const self = this;
+    keys.sort(function (x, y) { return self.chunks[x].used - self.chunks[y].used; });
+    for (let i = 0; i < keys.length && this.total > PROG_MAX * 0.7; i++) {
+      this.total -= this.chunks[keys[i]].list.length;
+      delete this.chunks[keys[i]];
+    }
+  }
+
+  /** Передачи канала, пересекающие [from, to), по возрастанию; недостающие сутки — запросить */
+  range(ch: Channel, from: number, to: number): Programme[] {
+    const m = this.mapping(ch.playlistId);
+    const e = m ? m[ch.key] : null;
+    if (!e) return [];
+    if (e[2] && !ch.epgIcon) ch.epgIcon = e[2];
+    const ck = ch.playlistId + ':' + ch.key;
+    const shift = Math.round(ch.tvgShift * 3600);
+    // накануне — передача, начавшаяся вчера и идущая в from
+    const d0 = Math.floor((from - shift) / DAY) - 1, d1 = Math.floor((to - 1 - shift) / DAY);
+    const out: Programme[] = [];
+    let miss = -1;
+    for (let d = d0; d <= d1 + 1; d++) {
+      const c = d <= d1 ? this.chunk(ck, d) : undefined;
+      if (!c && d <= d1) { if (miss < 0) miss = d; continue; }
+      if (miss >= 0) { this.request(ch, e, ck, miss, d - 1); miss = -1; }
+      if (!c) continue;
+      c.used = ++this.tick;
+      const list = c.list;
+      for (let i = 0; i < list.length; i++) if (list[i].stop > from && list[i].start < to) out.push(list[i]);
+    }
+    return out;
+  }
+
+  /** Номер изменения программы канала (растёт, когда пришли его сутки) — перестроить списки */
+  revOf(ch: Channel): number { return this.rev[ch.playlistId + ':' + ch.key] || 0; }
 
   /** Программа читается (ещё не готова) */
   isLoading(ch: Channel): boolean {
-    const c = this.cache[ch.playlistId + ':' + ch.key];
-    return c ? c.loading : this.mapFor[ch.playlistId] === undefined;
+    if (this.mapFor[ch.playlistId] === undefined) return true;
+    return (this.loadingOf[ch.playlistId + ':' + ch.key] || 0) > 0;
   }
 
   /** Передача в момент t */
   at(ch: Channel, t: number): Programme | null {
-    const list = this.programmes(ch);
-    let lo = 0, hi = list.length - 1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      const p = list[mid];
-      if (t < p.start) hi = mid - 1;
-      else if (t >= p.stop) lo = mid + 1;
-      else return p;
-    }
-    return null;
+    const list = this.range(ch, t, t + 1);
+    return list.length ? list[list.length - 1] : null;
   }
 
-  /** Первая передача, начинающаяся не раньше t */
+  /** Первая передача, начинающаяся не раньше t (в пределах двух суток) */
   after(ch: Channel, t: number): Programme | null {
-    const list = this.programmes(ch);
+    const list = this.range(ch, t, t + 2 * DAY);
     for (let i = 0; i < list.length; i++) if (list[i].start >= t) return list[i];
     return null;
   }
 
-  /** Передачи, пересекающие [from, to) */
-  range(ch: Channel, from: number, to: number): Programme[] {
-    return this.programmes(ch).filter(function (p) { return p.stop > from && p.start < to; });
+  /** Передачи, начинающиеся не раньше t: до n штук (в пределах двух суток) */
+  upcoming(ch: Channel, t: number, n: number): Programme[] {
+    return this.range(ch, t, t + 2 * DAY).filter(function (p) { return p.start >= t; }).slice(0, n);
   }
 
+  /** Передачи вокруг t (±1 сутки) — для Cells.at при перемещении по сетке */
+  around(ch: Channel, t: number): Programme[] { return this.range(ch, t - DAY, t + DAY); }
+
   /**
-   * Сброс кэша после пачки (done = false: только пустые записи — готовые списки не перечитываем
+   * Сброс кэша после пачки (done = false: только пустые куски — готовые не перечитываем
    * на каждую пачку) или после загрузки источника (done = true).
    */
   invalidate(url: string, done: boolean) {
-    for (const ck in this.cache) {
-      const c = this.cache[ck];
+    for (const k in this.chunks) {
+      const c = this.chunks[k];
       if (c.loading) continue;
-      if ((c.s === url || c.s === '') && (done || c.list.length === 0)) {
-        delete this.cache[ck];
-        const i = this.cacheOrder.indexOf(ck);
-        if (i >= 0) this.cacheOrder.splice(i, 1);
-      }
+      if (c.s === url && (done || c.list.length === 0)) { this.total -= c.list.length; delete this.chunks[k]; }
     }
     // сопоставление могло дополниться
     for (const pid in this.mapFor) {
@@ -394,8 +437,8 @@ export class Repo {
   }
 
   invalidateAll() {
-    this.cache = {};
-    this.cacheOrder = [];
+    this.chunks = {};
+    this.total = 0;
     this.mapFor = {};
     Bus.emit('epg', null);
   }
@@ -404,40 +447,82 @@ export class Repo {
 
   /**
    * Передачи каналов по словам названия: идущие, будущие на неделю, прошедшие в пределах архива.
-   * Читает пачки каналов по одному, сравнение без учёта регистра.
+   * Ищет сервис (/progsearch) — браузер не читает программу всех каналов; без сервиса — по
+   * каналу за раз из базы. Сравнение без учёта регистра.
    */
   searchProgrammes(channels: Channel[], words: string[], now: number, cancelled: () => boolean): Promise<{ channel: Channel; p: Programme }[]> {
     const out: { channel: Channel; p: Programme }[] = [];
     const self = this;
-    let i = 0;
     const seen: { [k: string]: true } = {};
-    function next(): Promise<{ channel: Channel; p: Programme }[]> {
-      if (cancelled() || i >= channels.length || out.length >= 400) return Promise.resolve(out);
-      const ch = channels[i++];
-      if (seen[ch.key]) return next();
+    const list: Channel[] = [];
+    const items: any[] = [];
+    for (let i = 0; i < channels.length; i++) {
+      const ch = channels[i];
+      if (seen[ch.key]) continue;
       seen[ch.key] = true;
       const m = self.mapping(ch.playlistId);
       const e = m ? m[ch.key] : null;
-      if (!e) return next();
-      const ck = ch.playlistId + ':' + ch.key;
-      const cached = self.cache[ck];
-      const get = cached && !cached.loading ? Promise.resolve(cached.list) : programmePacks(e[0], e[1]).then(function (packs) { return merge(packs, Math.round(ch.tvgShift * 3600)); });
-      return get.then(function (list) {
-        const from = now - ch.archiveDays * 86400;
-        const to = now + 7 * 86400;
-        for (let k = 0; k < list.length; k++) {
-          const p = list[k];
-          if (p.stop < from || p.start > to) continue;
-          if (p.stop <= now && !ch.hasArchive) continue;
-          const t = p.title.toLowerCase();
-          let ok = true;
-          for (let w = 0; w < words.length; w++) if (t.indexOf(words[w]) < 0) { ok = false; break; }
-          if (ok) out.push({ channel: ch, p: p });
-        }
-        return i % 20 === 0 ? new Promise<void>(function (r) { setTimeout(r, 0); }).then(next) : next();
-      });
+      if (!e) continue;
+      const shift = Math.round(ch.tvgShift * 3600);
+      const from = now - (ch.hasArchive ? ch.archiveDays * DAY : 0) - shift, to = now + 7 * DAY - shift;
+      items.push([e[0], e[1], Math.floor(from / DAY) - 1, Math.floor(to / DAY), list.length]);
+      list.push(ch);
     }
-    return next();
+    function add(ch: Channel, packs: any[]) {
+      const progs = merge(packs, Math.round(ch.tvgShift * 3600));
+      const from = now - ch.archiveDays * DAY, to = now + 7 * DAY;
+      for (let k = 0; k < progs.length && out.length < 400; k++) {
+        const p = progs[k];
+        if (p.stop < from || p.start > to) continue;
+        if (p.stop <= now && !ch.hasArchive) continue;
+        const t = p.title.toLowerCase();
+        let ok = true;
+        for (let w = 0; w < words.length; w++) if (t.indexOf(words[w]) < 0) { ok = false; break; }
+        if (ok) out.push({ channel: ch, p: p });
+      }
+    }
+    function local(): Promise<{ channel: Channel; p: Programme }[]> {
+      let i = 0;
+      function next(): Promise<{ channel: Channel; p: Programme }[]> {
+        if (cancelled() || i >= items.length || out.length >= 400) return Promise.resolve(out);
+        const it = items[i++];
+        return programmePacks(it[0], it[1], it[2], it[3]).then(function (packs) {
+          add(list[it[4]], packs);
+          return i % 20 === 0 ? new Promise<void>(function (r) { setTimeout(r, 0); }).then(next) : next();
+        });
+      }
+      return next();
+    }
+    if (!Net.proxyAvailable || !items.length) return local();
+    return new Promise<any[]>(function (resolve, reject) {
+      const r = new XMLHttpRequest();
+      r.open('POST', PROXY + '/progsearch', true);
+      r.timeout = 60000;
+      r.onload = function () {
+        if (r.status !== 200) { reject(new Error('progsearch ' + r.status)); return; }
+        try { resolve(JSON.parse(r.responseText)); } catch (e) { reject(e); }
+      };
+      r.onerror = r.ontimeout = function () { reject(new Error('progsearch network')); };
+      // text/plain — без предварительного OPTIONS
+      r.setRequestHeader('Content-Type', 'text/plain');
+      r.send(JSON.stringify({ w: words, c: items, max: 2000 }));
+      const poll = setInterval(function () { if (cancelled()) { clearInterval(poll); try { r.abort(); } catch (e) { /* */ } } }, 200);
+      const stop = function () { clearInterval(poll); };
+      r.addEventListener('loadend', stop);
+    }).then(function (hits) {
+      if (cancelled()) return out;
+      // [[i, {l, p}], …] — по каналам, в порядке списка
+      const by: { [i: number]: any[] } = {};
+      const order: number[] = [];
+      for (let k = 0; k < hits.length; k++) {
+        const i = hits[k][0];
+        if (!by[i]) { by[i] = []; order.push(i); }
+        by[i].push(hits[k][1]);
+      }
+      order.sort(function (x, y) { return x - y; });
+      for (let k = 0; k < order.length && out.length < 400; k++) add(list[order[k]], by[order[k]]);
+      return out;
+    }, function (e) { console.warn('progsearch', e && e.message); return local(); });
   }
 }
 
@@ -446,15 +531,42 @@ export class Repo {
  * перекрытия обрезаются по началу следующей.
  */
 /**
- * Пачки программы канала: у сервиса — HTTP /prog (готовый .json.gz с Content-Encoding: gzip —
- * браузер ТВ распаковывает сам, без fflate в основном потоке); не вышло — по WebSocket / из базы.
+ * Не больше 4 запросов программы одновременно; ждущие — новые первыми: при листании гида
+ * с удержанием ↑/↓ сначала приходят строки, на которых остановились, а не пролистанные.
  */
-function programmePacks(s: string, x: string): Promise<any[]> {
-  const fallback = function () { return Db.all<any>('prog', prefixRange([s, x])); };
+const fetchWaiting: (() => void)[] = [];
+let fetchActive = 0;
+function fetchQueued<T>(job: () => Promise<T>): Promise<T> {
+  return new Promise<T>(function (resolve, reject) {
+    fetchWaiting.push(function () {
+      fetchActive++;
+      job().then(function (v) { fetchActive--; pump(); resolve(v); }, function (e) { fetchActive--; pump(); reject(e); });
+    });
+    pump();
+  });
+}
+function pump() { while (fetchActive < 4 && fetchWaiting.length) fetchWaiting.pop()!(); }
+
+/**
+ * Пачки программы канала за сутки a…b (UTC источника): у сервиса — HTTP /prog (одни сутки —
+ * gzip-поток с Content-Encoding: gzip, браузер ТВ распаковывает сам); не вышло — из базы
+ * (WebSocket / IndexedDB) весь канал и отбор по суткам здесь.
+ */
+function programmePacks(s: string, x: string, a: number, b: number): Promise<any[]> {
+  const fallback = function () {
+    return Db.all<any>('prog', prefixRange([s, x])).then(function (packs) {
+      const out: any[] = [];
+      for (let i = 0; i < packs.length; i++) {
+        const p = unpackProgramme(packs[i]).filter(function (r: any[]) { const d = Math.floor(r[0] / DAY); return d >= a && d <= b; });
+        if (p.length) out.push({ s: packs[i].s, x: packs[i].x, l: packs[i].l, n: packs[i].n, p: p });
+      }
+      return out;
+    });
+  };
   if (!Net.proxyAvailable) return fallback();
   return new Promise<any[]>(function (resolve, reject) {
     const r = new XMLHttpRequest();
-    r.open('GET', PROXY + '/prog?s=' + encodeURIComponent(s) + '&x=' + encodeURIComponent(x), true);
+    r.open('GET', PROXY + '/prog?s=' + encodeURIComponent(s) + '&x=' + encodeURIComponent(x) + '&a=' + a + '&b=' + b, true);
     r.timeout = 15000;
     r.onload = function () {
       if (r.status !== 200) { reject(new Error('prog ' + r.status)); return; }

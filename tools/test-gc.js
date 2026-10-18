@@ -42,19 +42,19 @@ q('status', {}).then(function () {
 }).then(function () {
   return load(A, 1, ['a', 'b']);
 }).then(function () { return load(B, 1, ['z']); }).then(function () {
-  assert.deepStrictEqual(files(A, 'a'), ['1.json.gz']);
+  assert.deepStrictEqual(files(A, 'a'), ['1.epg']);
   // идёт новая загрузка (пачки дописаны, ещё не собрана): старая программа на месте
   return q('epgBatch', { groups: { prog: [pack(A, 'a', 2)], epgch: [{ key: [A, 'a'], value: { s: A, id: 'a', l: 2 } }] } });
 }).then(function () {
-  assert.deepStrictEqual(files(A, 'a'), ['1.json.gz', '2.ndjson'], 'во время загрузки старая программа не удаляется');
-  assert.deepStrictEqual(files(A, 'b'), ['1.json.gz'], 'канал b ещё со старой программой');
+  assert.deepStrictEqual(files(A, 'a'), ['1.epg', '2.ndjson'], 'во время загрузки старая программа не удаляется');
+  assert.deepStrictEqual(files(A, 'b'), ['1.epg'], 'канал b ещё со старой программой');
   // брошенный временный файл сборки
   fs.writeFileSync(path.join(pf.chanDir(A, 'a'), '2.json.gz.tmp'), 'x');
   return fin(A, 2);
 }).then(function () {
   return q('epgBatch', { groups: { sources: [{ key: A, value: { url: A, loadId: 2 } }] }, prune: { url: A, loadId: 2 } });
 }).then(function () {
-  assert.deepStrictEqual(files(A, 'a'), ['2.json.gz'], 'после готовности новой — только она, без .tmp');
+  assert.deepStrictEqual(files(A, 'a'), ['2.epg'], 'после готовности новой — только она, без .tmp');
   assert.strictEqual(files(A, 'b'), null, 'папка пропавшего из XMLTV канала удалена');
   var bucket = path.dirname(pf.chanDir(A, 'b'));
   if (bucket !== path.dirname(pf.chanDir(A, 'a'))) assert.ok(!fs.existsSync(bucket), 'пустая корзина удалена');

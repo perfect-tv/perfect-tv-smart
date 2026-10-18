@@ -46,6 +46,7 @@ export class GuideLayer implements Layer {
   private plRows: Programme[] = [];
   private plIndex = 0;
   private plKeep = -1;
+  private plRev = -1;
   private plJump = true;
   private plDays: number[] = [];
   private plDayLabels: [string, string][] = [];
@@ -177,9 +178,13 @@ export class GuideLayer implements Layer {
   private ensureRows {
     const ch = this.focused;
     if (!ch) { this.plCh = null; this.plLast = null; this.plRows = []; this.plDays = []; this.plDayLabels = []; return; }
-    if (ch === this.plCh &&!(this.plRows.length === 0 && this.tv.repo.programmes(ch).length > 0)) return;
-    const keep = ch === this.plLast? this.plKeep: -1;
+    // список перестраивается, когда пришли сутки этого канала (они приходят кусками)
+    const rev = this.tv.repo.revOf(ch);
+    if (ch === this.plCh && rev === this.plRev) return;
+    const same = ch === this.plCh && this.plRows.length > 0;
+    const keep = same? this.plRows[Math.min(this.plIndex, this.plRows.length - 1)].start: ch === this.plLast? this.plKeep: -1;
     this.plKeep = -1;
+    this.plRev = rev;
     const now = Clock.now;
     const from = Fmt.dayStart(now - Math.max(ch.archiveDays, 1) * 86400);
     const to = Fmt.dayStart(now) + 8 * 86400;
@@ -369,10 +374,10 @@ export class GuideLayer implements Layer {
   private gridKey(name: string) {
     const ch = this.focused;
     if (!ch) return;
-    const progs = this.tv.repo.programmes(ch);
-    const cell = Cells.at(progs, this.focusTime);
+    const repo = this.tv.repo;
+    const cell = Cells.at(repo.around(ch, this.focusTime), this.focusTime);
     if (name === 'left') {
-      this.focusTime = Math.max(Cells.at(progs, cell.start - 1).start, Clock.now - 14 * 86400);
+      this.focusTime = Math.max(Cells.at(repo.around(ch, cell.start - 1), cell.start - 1).start, Clock.now - 14 * 86400);
       if (this.focusTime < this.winStart) this.winStart = Math.floor(this.focusTime / SLOT) * SLOT;
     } else if (name === 'right') {
       this.focusTime = cell.end;
@@ -391,7 +396,7 @@ export class GuideLayer implements Layer {
     if (this.zone === Zone.CATS) { this.closeCats; return; }
     const ch = this.focused;
     if (!ch) return;
-    if (this.zone === Zone.GRID) { this.tv.openDetails(ch, Cells.at(this.tv.repo.programmes(ch), this.focusTime)); return; }
+    if (this.zone === Zone.GRID) { this.tv.openDetails(ch, Cells.at(this.tv.repo.around(ch, this.focusTime), this.focusTime)); return; }
     if (this.zone === Zone.PROGRAMS) { const p = this.plRows[this.plIndex]; if (p) this.programAction(p); return; }
     if (this.zone === Zone.DATES) { this.zone = Zone.PROGRAMS; this.redraw; return; }
     this.tv.playChannel(ch, this.groupKey);
@@ -695,7 +700,7 @@ export class GuideLayer implements Layer {
     const w = this.w - this.padX - x - this.clockW - 12 * em;
     const listP = (this.zone === Zone.PROGRAMS || this.zone === Zone.DATES) &&!this.grid? this.plRows[this.plIndex]: null;
     const ref = this.zone === Zone.GRID? this.focusTime: now;
-    const cell = listP? new Cell(listP.start, listP.stop, listP): Cells.at(this.tv.repo.programmes(ch), ref);
+    const cell = listP? new Cell(listP.start, listP.stop, listP): Cells.at(this.tv.repo.around(ch, ref), ref);
     const p = cell.program;
     this.text(ch.title, x, t + 0.6 * em, w, 1.2, C.t(0.7));
     this.text(p? p.title: str('no_programme'), x, t + 2.35 * em, w, 1.8, C.WHITE, true);
@@ -879,8 +884,7 @@ export class GuideLayer implements Layer {
     if (!this.grid) return;
     const from = this.winStart, to = this.winStart + SPAN;
     const k = (gr - gl) / SPAN;
-    const progs = this.tv.repo.programmes(ch);
-    const fc = focus && this.zone === Zone.GRID? Cells.at(progs, this.focusTime): null;
+    const fc = focus && this.zone === Zone.GRID? Cells.at(this.tv.repo.around(ch, this.focusTime), this.focusTime): null;
     const cells = Cells.cells(this.tv.repo.range(ch, from, to), from, to);
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
