@@ -266,7 +266,8 @@ function execute(job, q) {
           if (batchErr) return callback(batchErr);
           job.phase = 'packing';
           var fin = (backend && backend.finalize) || require('./progfiles.js').finalizeSource;
-          fin(url, loadId, function (finErr) {
+          // прошедшая программа прежней загрузки, которой нет в новой, остаётся — в окне архива (lo)
+          fin(url, loadId, lo, function (finErr) {
             if (finErr) console.warn('EPG finalize', finErr && finErr.message);
             commit({ sources: sources }, { url: url, loadId: loadId }, function (srcErr) {
               if (!srcErr) job.revision++;

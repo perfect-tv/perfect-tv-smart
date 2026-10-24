@@ -15,7 +15,10 @@ const EDGE = 6 * 3600;
  */
 export class DayWindow {
   ch: Channel | null = null;
-  /** границы: начало первых суток архива … конец восьмых суток вперёд (местное время) */
+  /**
+   * границы: начало архива … конец восьмых суток вперёд. Архив в N дней — ровно последние N × 24 ч
+   * (в 23:00 при одном дне — с передачи, что шла в 23:00 вчера); без архива — с текущей передачи.
+   */
   from = 0;
   to = 0;
   /** загружаемое окно */
@@ -26,7 +29,7 @@ export class DayWindow {
   reset(ch: Channel, t: number) {
     const now = Clock.now();
     this.ch = ch;
-    this.from = Fmt.dayStart(now - Math.max(ch.archiveDays, 1) * DAY);
+    this.from = now - (ch.hasArchive ? ch.archiveDays : 0) * DAY;
     this.to = Fmt.dayStart(now) + 8 * DAY;
     this.center(t);
   }
@@ -43,8 +46,9 @@ export class DayWindow {
   /** Передачи окна (недостающие сутки запрашиваются) */
   programmes(repo: Repo): Programme[] {
     if (!this.ch) return [];
-    const lo = this.lo;
-    return repo.range(this.ch, lo, this.hi).filter(function (p) { return p.start >= lo; });
+    const lo = this.lo, from = this.from;
+    // у начала архива — и передача, что шла в этот момент
+    return repo.range(this.ch, lo, this.hi).filter(function (p) { return lo <= from ? p.stop > from : p.start >= lo; });
   }
 
   /** Фокус на передаче со временем t: у края — расширить окно на двое суток; true — расширили */
@@ -61,16 +65,19 @@ export class DayWindow {
    */
   days(repo: Repo): number[] | null {
     if (!this.ch) return [];
-    const idx = repo.daysOf(this.ch);
-    if (!idx) return null;
-    const shift = Math.round(this.ch.tvgShift * 3600);
+    // сутки архива — всегда (без программы там ячейки «Нет программы» по 30 минут)
     const out: number[] = [];
+    const today = Fmt.dayStart(Clock.now());
+    for (let d = Fmt.dayStart(this.from); d <= today; d = Fmt.dayStart(d + DAY + 3 * 3600)) out.push(d);
+    const idx = repo.daysOf(this.ch);
+    if (!idx) return out.length > 1 ? out : null;
+    const shift = Math.round(this.ch.tvgShift * 3600);
     for (let i = 0; i < idx.length; i++) {
       if (!idx[i][1]) continue;
       // сутки источника (UTC) задевают одни или двое местных суток
       const a = Fmt.dayStart(idx[i][0] * DAY + shift), b = Fmt.dayStart((idx[i][0] + 1) * DAY + shift - 1);
       const ds = a === b ? [a] : [a, b];
-      for (let k = 0; k < ds.length; k++) if (ds[k] >= this.from && ds[k] < this.to && out.indexOf(ds[k]) < 0) out.push(ds[k]);
+      for (let k = 0; k < ds.length; k++) if (ds[k] + DAY > this.from && ds[k] < this.to && out.indexOf(ds[k]) < 0) out.push(ds[k]);
     }
     out.sort(function (x, y) { return x - y; });
     return out;

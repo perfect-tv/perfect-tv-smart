@@ -287,39 +287,89 @@ function du(p, cb) {
 
 /**
  * Конец загрузки: каждый канал источника — из строк <load>.ndjson в один <load>.epg по суткам.
+ * keepFrom (unix-секунды, начало окна архива) — прошедшая программа прежней загрузки, которой нет
+ * в новой, переносится: многие XMLTV отдают программу только с сегодняшнего дня, а архив канала —
+ * неделя. Переносится то, что раньше первой передачи новой загрузки (у канала, пропавшего из
+ * XMLTV, — всё прошедшее), и не старше keepFrom: старше архива не храним.
  * По каналу за раз с уступкой циклу событий (в процессе сервиса прокси не простаивает).
  */
-function finalizeSource(s, loadId, cb) {
-  var name = String(loadId) + '.ndjson';
+function finalizeSource(s, loadId, keepFrom, cb) {
+  if (typeof keepFrom === 'function') { cb = keepFrom; keepFrom = null; }
+  var load = String(loadId), name = load + '.ndjson';
+  var now = Math.floor(Date.now() / 1000);
   channelDirs(h(s), function (dirs) {
-    var i = 0, done = 0;
+    var i = 0, done = 0, kept = 0;
     (function next() {
-      if (i >= dirs.length) { console.log('EPG packed', done, 'channels to .epg'); return cb(null); }
-      var dir = dirs[i++], src = path.join(dir, name);
-      fs.readFile(src, 'utf8', function (re, text) {
-        if (re) return setImmediate(next);
-        var packs = [], lines = text.split('\n'), x = null;
-        try {
-          for (var j = 0; j < lines.length; j++) {
-            if (!lines[j]) continue;
-            var r = JSON.parse(lines[j]);
-            packs.push(plainPack(r.k, r.v));
-            x = r.k[1];
-          }
-        } catch (e) { return setImmediate(next); }
-        packs.sort(function (a, b) { return a.n - b.n; });
+      if (i >= dirs.length) { console.log('EPG packed', done, 'channels to .epg', kept ? '(kept past programme of ' + kept + ')' : ''); return cb(null); }
+      var dir = dirs[i++];
+      fs.readdir(dir, function (de, names) {
+        names = names || [];
+        var olds = names.filter(function (n) { return PACK_FILE.test(n) && loadOf(n) !== load; });
+        var hasNew = names.indexOf(name) >= 0;
+        if (!hasNew && (keepFrom === null || !olds.length)) return setImmediate(next);
+        readNew(function (packs, x) {
+          if (!packs) return setImmediate(next);
+          var first = Infinity;
+          for (var k = 0; k < packs.length; k++) for (var r = 0; r < packs[k].p.length; r++) if (packs[k].p[r][0] < first) first = packs[k].p[r][0];
+          carry(first === Infinity ? now : first, !hasNew, function (old, ox) {
+            if (old.length) { packs.push({ s: s, x: x || ox, l: loadId, n: -1, p: old }); kept++; }
+            if (!packs.length || !(x || ox)) return setImmediate(next);
+            write(packs, x || ox);
+          });
+        });
+      });
+      function readNew(done2) {
+        fs.readFile(path.join(dir, name), 'utf8', function (re, text) {
+          if (re) return done2([], null);
+          var packs = [], lines = text.split('\n'), x = null;
+          try {
+            for (var j = 0; j < lines.length; j++) {
+              if (!lines[j]) continue;
+              var r = JSON.parse(lines[j]);
+              packs.push(plainPack(r.k, r.v));
+              x = r.k[1];
+            }
+          } catch (e) { return done2(null, null); }
+          packs.sort(function (a, b) { return a.n - b.n; });
+          done2(packs, x);
+        });
+      }
+      // прошедшее из прежних файлов: начало ≥ keepFrom и < until (канал пропал — и уже закончилось)
+      function carry(until, pastOnly, done2) {
+        if (keepFrom === null) return done2([], null);
+        fs.readdir(dir, function (e, names) {
+          var olds = (names || []).filter(function (n) { return PACK_FILE.test(n) && loadOf(n) !== load; });
+          var out = [], seen = {}, ox = null, j = 0;
+          (function each() {
+            if (j >= olds.length) { out.sort(function (a, b) { return a[0] - b[0]; }); return done2(out, ox); }
+            filePacks(dir, olds[j++], dayOf(keepFrom), dayOf(until), function (list) {
+              for (var k = 0; k < list.length; k++) {
+                ox = ox || list[k].x;
+                for (var r = 0; r < list[k].p.length; r++) {
+                  var pr = list[k].p[r];
+                  if (pr[0] < keepFrom || pr[0] >= until || (pastOnly && pr[1] > now) || seen[pr[0]]) continue;
+                  seen[pr[0]] = true;
+                  out.push(pr);
+                }
+              }
+              each();
+            });
+          })();
+        });
+      }
+      function write(packs, x) {
         var buf;
         try { buf = encodeEpg(s, x, loadId, packs); } catch (ze) { return setImmediate(next); }
-        var dst = path.join(dir, String(loadId) + '.epg'), tmp = dst + '.tmp';
+        var dst = path.join(dir, load + '.epg'), tmp = dst + '.tmp';
         fs.writeFile(tmp, buf, function (we) {
           if (we) return setImmediate(next);
           fs.rename(tmp, dst, function (rne) {
             if (rne) return fs.unlink(tmp, function () { setImmediate(next); });
             done++;
-            fs.unlink(src, function () { setImmediate(next); });
+            fs.unlink(path.join(dir, name), function () { setImmediate(next); });
           });
         });
-      });
+      }
     })();
   });
 }

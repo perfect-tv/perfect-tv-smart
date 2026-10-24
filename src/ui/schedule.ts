@@ -165,12 +165,17 @@ export class ScheduleLayer implements Layer {
     const ch = this.ch!;
     const tm = Clock.now;
     const days = ch.archiveDays;
-    const archFrom = tm - days * 86400;
+    // архив — ровно последние days × 24 ч (DayWindow.from)
+    const archFrom = this.dw.from;
     const from = this.dw.lo, to = this.dw.hi;
     const st = this.tv.state;
     const playingPos = st.channel === ch? this.tv.position: -1;
-    const list = Cells.cells(this.tv.repo.range(ch, from, to), from, to).filter(function (c) {
-      return c.start >= from && (c.program!== null || (days > 0 && c.start >= archFrom - SLOT && c.start < tm));
+    // передачи окна (у начала архива — и та, что шла в этот момент); в архиве без программы —
+    // «Нет программы» по 30 минут (или до первой передачи)
+    const programs = this.dw.programmes(this.tv.repo);
+    const start = programs.length && programs[0].start < from? programs[0].start: from;
+    const list = Cells.cells(programs, start, to).filter(function (c) {
+      return c.program!== null || (ch.hasArchive && days > 0 && c.end > archFrom && c.start < tm);
     });
     const rows: Row[] = [];
     let day = -1e9;
@@ -181,10 +186,11 @@ export class ScheduleLayer implements Layer {
       if (d!== day) { day = d; rows.push({ sep: true, day: d, title: Fmt.dayLabel(c.start), start: c.start }); }
       const live = c.start <= tm && tm < c.end;
       const playing = playingPos >= c.start && playingPos < c.end;
-      const arch = ch.hasArchive && c.start >= archFrom - SLOT && c.start < tm;
+      // передача, начавшаяся до начала архива, но идущая в нём, — тоже из архива
+      const arch = ch.hasArchive && c.end > archFrom && c.start < tm;
       if (playing || (live && focus < 0)) focus = rows.length;
       rows.push({
-        sep: false, day: d, title: c.label, start: c.start, time: Fmt.hhmm(c.start), past: c.end <= tm, live: live, archive: arch, playing: playing,
+        sep: false, day: d, title: c.program? c.program.title: str('no_programme'), start: c.start, time: Fmt.hhmm(c.start), past: c.end <= tm, live: live, archive: arch, playing: playing,
         remind: c.start > tm && Reminders.has(ch, c.start), desc: c.program? c.program.desc: '', range: Fmt.dayTimeRange(c.start, c.end),
         action: str(live? 'watch_live': c.end <= tm && arch? 'watch_from_archive': 'about'),
         progress: live? Fmt.progress(c.start, c.end, tm): undefined, cell: c,
