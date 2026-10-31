@@ -17,7 +17,8 @@ export class DayWindow {
   ch: Channel | null = null;
   /**
    * границы: начало архива … конец восьмых суток вперёд. Архив в N дней — ровно последние N × 24 ч
-   * (в 23:00 при одном дне — с передачи, что шла в 23:00 вчера); без архива — с текущей передачи.
+   * (в 23:00 при одном дне — с передачи, что шла в 23:00 вчера); без архива — с начала сегодняшних
+   * суток (прошедшие — без значка архива, отмотать на них нельзя).
    */
   from = 0;
   to = 0;
@@ -29,7 +30,8 @@ export class DayWindow {
   reset(ch: Channel, t: number) {
     const now = Clock.now();
     this.ch = ch;
-    this.from = now - (ch.hasArchive ? ch.archiveDays : 0) * DAY;
+    // без архива — с начала сегодняшних суток: прошедшие передачи видно, но смотреть их нельзя
+    this.from = ch.hasArchive && ch.archiveDays > 0 ? now - ch.archiveDays * DAY : Fmt.dayStart(now);
     this.to = Fmt.dayStart(now) + 8 * DAY;
     this.center(t);
   }
