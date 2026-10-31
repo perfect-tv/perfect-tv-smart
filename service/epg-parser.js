@@ -206,6 +206,9 @@ var Pick = (function () {
     return Pick;
 }());
 var CHILD_RE = /<(title|sub-title|desc|category|icon|display-name)\b([^>]*?)(\/>|>([\s\S]*?)<\/\1\s*>)/g;
+function view(b, from, to) {
+    return typeof b.subarray === "function" ? b.subarray(from, to) : b.slice(from, to);
+}
 var XmltvParser = (function () {
     function XmltvParser(langs, onChannel, beforeProgrammes, wanted, onProgramme) {
         this.langs = langs;
@@ -230,7 +233,7 @@ var XmltvParser = (function () {
         this.decoder = new TextDecoder("utf-8");
     }
     XmltvParser.prototype.decode = function (from, to) {
-        return this.decoder.decode(this.buf.subarray(from, to));
+        return this.decoder.decode(view(this.buf, from, to));
     };
     XmltvParser.prototype.push = function (chunk) {
         if (this.len === 0) {
@@ -239,7 +242,7 @@ var XmltvParser = (function () {
         }
         else {
             var nb = new Uint8Array(this.len + chunk.length);
-            nb.set(this.buf.subarray(0, this.len), 0);
+            nb.set(view(this.buf, 0, this.len), 0);
             nb.set(chunk, this.len);
             this.buf = nb;
             this.len = nb.length;
@@ -265,8 +268,10 @@ var XmltvParser = (function () {
             return;
         }
         if (used > 0) {
-            this.buf = this.buf.slice(used, this.len);
-            this.len = this.buf.length;
+            var tail = new Uint8Array(this.len - used);
+            tail.set(view(this.buf, used, this.len));
+            this.buf = tail;
+            this.len = tail.length;
             if (this.resumeAt >= 0)
                 this.resumeAt -= used;
         }
@@ -369,7 +374,7 @@ var XmltvParser = (function () {
                     this.lastLen = ve - vs;
                     if (this.lastBytes.length < this.lastLen)
                         this.lastBytes = new Uint8Array(this.lastLen * 2);
-                    this.lastBytes.set(b.subarray(vs, ve), 0);
+                    this.lastBytes.set(view(b, vs, ve), 0);
                     this.lastId = unescapeXml(this.decode(vs, ve));
                     this.lastWanted = this.lastId.length > 0 && this.wanted(this.lastId);
                 }

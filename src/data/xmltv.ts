@@ -146,6 +146,14 @@ class Pick {
 
 const CHILD_RE = /<(title|sub-title|desc|category|icon|display-name)\b([^>]*?)(\/>|>([\s\S]*?)<\/\1\s*>)/g;
 
+/**
+ * Байты [from, to) без копии. Сервис на webOS 3–5 — Node 0.12: там Buffer (кусок от распаковщика)
+ * ещё не наследник Uint8Array и subarray у него нет — только slice (тоже без копии).
+ */
+function view(b: Uint8Array, from: number, to: number): Uint8Array {
+  return typeof b.subarray === 'function'? b.subarray(from, to): (b as any).slice(from, to);
+}
+
 export class XmltvParser {
   channels = 0;
   programmes = 0;
@@ -175,7 +183,7 @@ export class XmltvParser {
   }
 
   private decode(from: number, to: number): string {
-    return this.decoder.decode(this.buf.subarray(from, to));
+    return this.decoder.decode(view(this.buf, from, to));
   }
 
   /** Очередной кусок данных */
@@ -185,7 +193,7 @@ export class XmltvParser {
       this.len = chunk.length;
     } else {
       const nb = new Uint8Array(this.len + chunk.length);
-      nb.set(this.buf.subarray(0, this.len), 0);
+      nb.set(view(this.buf, 0, this.len), 0);
       nb.set(chunk, this.len);
       this.buf = nb;
       this.len = nb.length;
@@ -211,8 +219,11 @@ export class XmltvParser {
   private keepTail(used: number) {
     if (used >= this.len) { this.buf = new Uint8Array(0); this.len = 0; return; }
     if (used > 0) {
-      this.buf = this.buf.slice(used, this.len);
-      this.len = this.buf.length;
+      // копия хвоста, не.slice: у Uint8Array его нет в Node 0.12 (сервис на webOS 3–5)
+      const tail = new Uint8Array(this.len - used);
+      tail.set(view(this.buf, used, this.len));
+      this.buf = tail;
+      this.len = tail.length;
       if (this.resumeAt >= 0) this.resumeAt -= used;
     }
   }
@@ -295,7 +306,7 @@ export class XmltvParser {
         if (!this.sameAsLast(vs, ve)) {
           this.lastLen = ve - vs;
           if (this.lastBytes.length < this.lastLen) this.lastBytes = new Uint8Array(this.lastLen * 2);
-          this.lastBytes.set(b.subarray(vs, ve), 0);
+          this.lastBytes.set(view(b, vs, ve), 0);
           this.lastId = unescapeXml(this.decode(vs, ve));
           this.lastWanted = this.lastId.length > 0 && this.wanted(this.lastId);
         }
