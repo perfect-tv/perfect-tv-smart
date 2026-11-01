@@ -147,10 +147,17 @@ export class Carousel {
   hide() { if (this.el.style.display !== 'none') Anim.hide(this.el); }
 }
 
-/** Кольцо загрузки потока: дольше 0,6 с */
+/**
+ * Кольцо загрузки потока: дольше 1 с. Поворот шагами по 45° 3 раза в секунду, а не CSS-анимацией:
+ * бесконечное вращение перерисовывало экран 60 раз в секунду — на ТВ без ускорения (эмулятор
+ * webOS 4) приложение было занято на 127% ядра против 2% без кольца, при 2–3 шагах в секунду —
+ * около 13%. При выключенных «Плавных анимациях» кольцо стоит.
+ */
 export class Buffering {
   private el: HTMLElement;
   private timer = 0;
+  private spin = 0;
+  private angle = 0;
   constructor(parent: HTMLElement) {
     this.el = el('div', '', null, parent);
     this.el.id = 'buffering';
@@ -158,10 +165,20 @@ export class Buffering {
   }
   set(on: boolean) {
     clearTimeout(this.timer);
-    if (!on) { this.el.style.display = 'none'; return; }
+    if (!on) { clearInterval(this.spin); this.spin = 0; this.el.style.display = 'none'; return; }
     const e = this.el;
     if (e.style.display !== 'none') return;
-    this.timer = window.setTimeout(function () { e.style.display = ''; }, 600);
+    const self = this;
+    this.timer = window.setTimeout(function () {
+      e.style.display = '';
+      if (!Anim.on || self.spin) return;
+      self.spin = window.setInterval(function () {
+        self.angle = (self.angle + 45) % 360;
+        const t = 'rotate(' + self.angle + 'deg)';
+        (e.style as any).webkitTransform = t;
+        e.style.transform = t;
+      }, 333);
+    }, 1000);
   }
 }
 

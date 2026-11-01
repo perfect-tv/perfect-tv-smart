@@ -15,9 +15,7 @@ body.nocursor,body.nocursor *{cursor:none!important}
 #ui{position:absolute;left:0;top:0;right:0;bottom:0;overflow:hidden}.abs{position:absolute}.el{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center}.grow{-webkit-flex:1;flex:1;min-width:0}.t95{color:${C.t(0.95)}}.t85{color:${C.t(0.85)}}.t75{color:${C.t(0.75)}}.t65{color:${C.t(0.65)}}.t60{color:${C.t(0.6)}}.t50{color:${C.t(0.5)}}.t40{color:${C.t(0.4)}}.ic{display:inline-block;width:1.4rem;height:1.4rem;vertical-align:middle;-webkit-flex:none;flex:none}.ic svg{width:100%;height:100%;display:block}.f{background:${W}!important;color:#000!important}.f.t95,.f.t85,.f.t75,.f.t65,.f.t60,.f.t50,.f.t40,.f.v,.f.val,.f.ds,.f.lbl{color:rgba(0,0,0,.62)!important}.m{background:${C.FILL_MARKED}}
 
 /* загрузка потока */
-#buffering{position:absolute;left:50%;top:50%;width:5rem;height:5rem;margin:-2.5rem 0 0 -2.5rem;border-radius:50%;border:0.45rem solid ${C.t(0.18)};border-top-color:${W};-webkit-animation:spin 0.9s linear infinite;animation:spin 0.9s linear infinite}
-@-webkit-keyframes spin{to{-webkit-transform:rotate(360deg)}}
-@keyframes spin{to{transform:rotate(360deg)}}
+#buffering{position:absolute;left:50%;top:50%;width:5rem;height:5rem;margin:-2.5rem 0 0 -2.5rem;border-radius:50%;border:0.45rem solid ${C.t(0.18)};border-top-color:${W}}
 
 /* тост */
 #toast{position:absolute;left:50%;top:2.4rem;-webkit-transform:translateX(-50%);transform:translateX(-50%);max-width:70%;padding:0.9rem 1.6rem;border-radius:0.6rem;background:${C.PANEL};font-size:1.35rem;text-align:center;z-index:50}
