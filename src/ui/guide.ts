@@ -5,6 +5,7 @@ import { Group } from '../data/catalog';
 import { Channel, Playlist, Programme } from '../data/models';
 import { Reminders } from '../data/reminders';
 import { DayWindow } from './daywindow';
+import { DomCtx } from './domctx';
 import { Cell, Cells, SLOT } from './cells';
 import { Anim, drawIcon, el } from './dom';
 import { Fmt } from './fmt';
@@ -26,8 +27,12 @@ const enum Zone { PLAYLISTS, CATS, CHANNELS, GRID, PROGRAMS, DATES }
  */
 export class GuideLayer implements Layer {
   el: HTMLElement;
-  private canvas: HTMLCanvasElement;
-  private c: CanvasRenderingContext2D;
+  /** поверхность: <canvas> или (HTML-отрисовка) <div class="gdom"> */
+  private canvas: HTMLElement;
+  private c!: CanvasRenderingContext2D;
+  /** HTML-отрисовка: контекст с командами Canvas поверх DOM (ui/domctx.ts) */
+  private dom: DomCtx | null = null;
+  private render = -1;
   private groups: Group[] = [];
   private groupIndex = 0;
   private index = 0;
@@ -70,10 +75,30 @@ export class GuideLayer implements Layer {
 
   constructor(private tv: Tv) {
     this.el = el('div', 'guide');
-    this.canvas = document.createElement('canvas');
-    this.el.appendChild(this.canvas);
-    this.c = this.canvas.getContext('2d')!;
+    this.canvas = this.el;
+    this.surface;
+  }
+
+  /** Поверхность по настройке «Отрисовка гида»: HTML (DOM) или Canvas */
+  private surface {
+    const mode = Prefs.guideRender;
+    if (mode === this.render) return;
+    this.render = mode;
+    if (this.canvas!== this.el) this.el.removeChild(this.canvas);
     const self = this;
+    if (mode === 0) {
+      const d = el('div', 'gdom', null, this.el);
+      this.dom = new DomCtx(d);
+      this.c = this.dom as unknown as CanvasRenderingContext2D;
+      this.canvas = d;
+    } else {
+      const cv = document.createElement('canvas');
+      this.el.appendChild(cv);
+      this.dom = null;
+      this.c = cv.getContext('2d')!;
+      this.canvas = cv;
+      this.w = 0;   // размер холста — заново
+    }
     this.canvas.addEventListener('click', function (e) { self.tap(e.clientX, e.clientY); });
     this.canvas.addEventListener('contextmenu', function (e) { e.preventDefault; const ch = self.focused; if (ch) self.tv.openMenu(ch, true); });
   }
@@ -94,6 +119,7 @@ export class GuideLayer implements Layer {
 
   open(ch: Channel | null, groupKey: string | null, toGrid = false) {
     const cat = this.tv.catalog;
+    this.surface;
     this.size;
     if (!cat) { this.groups = []; this.redraw; return; }
     this.groups = cat.groups;
@@ -167,7 +193,8 @@ export class GuideLayer implements Layer {
 
   // ------------------------------------------------------------ вид «Каналы + программа»
 
-  private dayOf(i: number) { return Fmt.dayIndex(this.plRows[i].start); }
+  /** День передачи i списка; -1 — передач нет (даты из оглавления уже есть, сутки ещё грузятся) */
+  private dayOf(i: number) { const p = this.plRows[i]; return p? Fmt.dayIndex(p.start): -1; }
 
   private liveIndex: number {
     const now = Clock.now;
@@ -502,10 +529,12 @@ export class GuideLayer implements Layer {
 
   private size {
     const w = U.w, h = U.h, dpr = U.dpr;
-    if (this.w === w && this.h === h && this.canvas.width === Math.round(w * dpr)) return;
+    if (this.dom) { this.w = w; this.h = h; return; }
+    const cv = this.canvas as HTMLCanvasElement;
+    if (this.w === w && this.h === h && cv.width === Math.round(w * dpr)) return;
     this.w = w; this.h = h;
-    this.canvas.width = Math.round(w * dpr);
-    this.canvas.height = Math.round(h * dpr);
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
   }
 
   private get em { return U.em; }
@@ -547,6 +576,14 @@ export class GuideLayer implements Layer {
   }
 
   private draw {
+    const t0 = Date.now;
+    if (this.dom) this.dom.begin;
+    this.drawFrame;
+    if (this.dom) this.dom.end;
+    GuideStats.add(Date.now - t0);
+  }
+
+  private drawFrame {
     this.size;
     const c = this.c;
     const dpr = U.dpr;
@@ -1259,3 +1296,15 @@ function drawKeycap(c: CanvasRenderingContext2D, key: string, x: number, cy: num
     }
   }
 }
+
+/** Время отрисовки гида (мс) — в журнал раз в 50 кадров: сравнить HTML и Canvas на ТВ */
+const GuideStats = {
+  n: 0, sum: 0, max: 0,
+  add(ms: number) {
+    this.n++; this.sum += ms; if (ms > this.max) this.max = ms;
+    if (this.n >= 50) {
+      console.log('guide draw ' + (Prefs.guideRender === 0? 'html': 'canvas') + ' (js) avg ' + (this.sum / this.n).toFixed(1) + ' ms, max ' + this.max + ' ms / ' + this.n + ' frames');
+      this.n = 0; this.sum = 0; this.max = 0;
+    }
+  },
+};

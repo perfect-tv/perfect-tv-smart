@@ -81,6 +81,9 @@ const ICONS: { [k: string]: string } = {
   refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>',
 };
 
+/** SVG-разметка значков (для HTML-гида, ui/domctx.ts) */
+export const ICON_SVG = ICONS;
+
 export function icon(name: string, cls?: string): HTMLElement {
   const s = document.createElement('span');
   s.className = 'ic' + (cls ? ' ' + cls : '');
@@ -112,6 +115,7 @@ export function iconPaths(name: string): Path2D[] {
 
 /** Нарисовать значок на Canvas: (x, y) — левый верхний угол, size — сторона, px */
 export function drawIcon(c: CanvasRenderingContext2D, name: string, x: number, y: number, size: number, color: string) {
+  if ((c as any).isDom) { (c as any).icon(name, x, y, size, color); return; }   // HTML-гид
   const ps = iconPaths(name);
   c.save();
   c.translate(x, y);

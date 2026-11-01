@@ -79,6 +79,7 @@ export function roundRect(c: CanvasRenderingContext2D, l: number, t: number, r: 
   const w = r - l, h = b - t;
   if (w <= 0 || h <= 0) return;
   rad = Math.min(rad, w / 2, h / 2);
+  if ((c as any).isDom) { (c as any).roundRect(l, t, r, b, rad, color); return; }   // HTML-гид
   c.fillStyle = color;
   c.beginPath;
   c.moveTo(l + rad, t);
@@ -98,6 +99,7 @@ export function strokeRoundRect(c: CanvasRenderingContext2D, l: number, t: numbe
   const w = r - l, h = b - t;
   if (w <= 0 || h <= 0) return;
   rad = Math.min(rad, w / 2, h / 2);
+  if ((c as any).isDom) { (c as any).strokeRoundRect(l, t, r, b, rad, color, width); return; }   // HTML-гид
   c.strokeStyle = color;
   c.lineWidth = width;
   c.beginPath;

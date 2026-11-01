@@ -85,6 +85,8 @@ export const Prefs = {
   get numberMode() { return int('number_mode', NUMBER_BADGE, 0, 2); }, set numberMode(v: number) { put('number_mode', v); },
   /** Прокси (JS-сервис): 0 — авто (заголовки канала и ошибки CORS), 1 — всегда, 2 — никогда */
   get proxyMode() { return int('proxy_mode', 0, 0, 2); }, set proxyMode(v: number) { put('proxy_mode', v); },
+  /** Отрисовка гида: 0 — HTML (DOM, перерисовываются только изменившиеся элементы), 1 — Canvas */
+  get guideRender() { return int('guide_render', 0, 0, 1); }, set guideRender(v: number) { put('guide_render', v); },
   /** HLS: 0 — hls.js, 1 — native, 2 — auto (native эфир, hls.js архив). */
   get hlsEngine() { return int('hls_engine', Platform.isWebOS ? 2 : 0, 0, 2); }, set hlsEngine(v: number) { put('hls_engine', v); },
 
