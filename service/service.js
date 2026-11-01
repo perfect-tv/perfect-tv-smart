@@ -70,7 +70,7 @@ service.register('start', function (message) {
 
 service.register('ping', function (message) {
   message.respond({ returnValue: true, port: proxy.PORT, proxyReady: proxyReady,
-    proxyError: proxyError, node: process.versions && process.versions.node });
+    proxyError: proxyError, node: process.versions && process.versions.node, dataDir: require('./datadir.js') });
 });
 
 // Прямой транспорт данных через системную шину. Не требует HTTP-сервера на ТВ;

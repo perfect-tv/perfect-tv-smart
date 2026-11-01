@@ -11,7 +11,7 @@
 var fs = require('fs');
 var path = require('path');
 var TEMPLATE = path.join(__dirname, 'perfecttv-template.sqlite3');
-var ROOT = process.env.PERFECTTV_DATA_DIR || '/media/internal/perfecttv-data';
+var ROOT = require('./datadir.js');   // /media/internal/perfecttv-data или запасная (webOS 3)
 var DB_PATH = path.join(ROOT, 'perfecttv.sqlite3');
 var settingsDb = null;
 var PAGE = 4096;

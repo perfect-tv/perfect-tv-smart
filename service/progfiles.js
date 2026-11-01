@@ -21,7 +21,7 @@ var path = require('path');
 var zlib = require('zlib');
 var crypto = require('crypto');
 
-var ROOT = process.env.PERFECTTV_DATA_DIR || '/media/internal/perfecttv-data';
+var ROOT = require('./datadir.js');   // /media/internal/perfecttv-data или запасная (webOS 3)
 var PROG = path.join(ROOT, 'prog2');
 var BufferFrom = function (s, enc) { return new Buffer(s, enc); };
 

@@ -5,8 +5,10 @@ var url = require('url');
 var sqlite = require('./filekv.js');
 var MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 var MAX_MESSAGE = 4 * 1024 * 1024;
+// Origin приложения: webOS 4+ — «file://» или «null», webOS 3 (QtWebEngine, Chrome 38) — «file://<id приложения>»
+var APP_ORIGIN = 'file://top.rootu.perfecttv';
 function allowed(origin) {
-  return !origin || origin === 'null' || origin === 'file://' ||
+  return !origin || origin === 'null' || origin === 'file://' || origin === APP_ORIGIN ||
     /^http:\/\/(127\.0\.0\.1|localhost)(:[0-9]+)?$/.test(origin);
 }
 function frame(op, content) {

@@ -9,7 +9,7 @@ var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
 var urlMod = require('url');
-var ROOT = process.env.PERFECTTV_DATA_DIR || '/media/internal/perfecttv-data';
+var ROOT = require('./datadir.js');   // /media/internal/perfecttv-data или запасная (webOS 3)
 var STORES = { playlists: true, channels: true, sources: true, epgch: true, prog: true, map: true };
 var MAX_BODY = 3 * 1024 * 1024;
 var nextTemp = 0;
@@ -227,9 +227,9 @@ function body(req, cb) {
   req.on('error', function (e) { if (!stopped) { stopped = true; cb(e); } });
 }
 function handle(req, out) {
-  // Запросы из app origin=file:// (Origin: null). Из внешних сайтов доступ запрещён.
+  // Запросы из приложения: Origin null / file:// (webOS 4+) или file://top.rootu.perfecttv (webOS 3). Из внешних сайтов доступ запрещён.
   var origin = req.headers.origin || '';
-  if (origin && origin !== 'null' && origin !== 'file://' && !/^http:\/\/127\.0\.0\.1(:[0-9]+)?$/.test(origin)) return done(out, 403, { ok: false, error: 'origin denied' });
+  if (origin && origin !== 'null' && origin !== 'file://' && origin !== 'file://top.rootu.perfecttv' && !/^http:\/\/127\.0\.0\.1(:[0-9]+)?$/.test(origin)) return done(out, 403, { ok: false, error: 'origin denied' });
   out._perfectOrigin = origin || 'null';
   var parsed = urlMod.parse(req.url, true), route = parsed.pathname;
   if (req.method === 'OPTIONS') {
