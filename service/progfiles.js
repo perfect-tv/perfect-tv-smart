@@ -11,7 +11,8 @@
  * Формат .epg: строка "PTV1 <длина оглавления, 8 знаков>\n", оглавление JSON
  * [[сутки, смещение, длина, передач], …] (смещения — от конца оглавления), затем по gzip-потоку
  * на сутки — JSON-массив из одной пачки [{s,x,l,n:сутки,p:[[start,stop,…],…]}]. Сутки — по
- * началу передачи. Одни сутки /prog отдаёт как есть с Content-Encoding: gzip (распакует браузер).
+ * началу передачи; передача, идущая через полночь, лежит и в следующих сутках (первой). Одни сутки
+ * /prog отдаёт как есть с Content-Encoding: gzip (распакует браузер).
  * Прежний <загрузка>.json.gz (1.1.1, канал целиком) читается, пока его не сменит новая загрузка.
  * Код — ES5 (Node 0.12).
  */
@@ -46,10 +47,15 @@ function encodeEpg(s, x, l, packs) {
     }
   }
   days.sort(function (a, b) { return a - b; });
-  var index = [], bodies = [], off = 0;
+  var index = [], bodies = [], off = 0, last = null;
   for (var k = 0; k < days.length; k++) {
     var list = byDay[days[k]];
     list.sort(function (a, b) { return a[0] - b[0]; });
+    // передача, начавшаяся раньше и идущая в начале этих суток, — и сюда: интерфейсу хватает одних
+    // суток (их /prog отдаёт gzip-куском как есть, без распаковки и сборки JSON в сервисе)
+    var dayStart = days[k] * DAY;
+    if (last && last[1] > dayStart && (!list.length || list[0][0] > last[0])) list.unshift(last);
+    for (var q = list.length - 1; q >= 0; q--) if (list[q][0] >= dayStart) { last = list[q]; break; }
     var gz = zlib.gzipSync(BufferFrom(JSON.stringify([{ s: s, x: x, l: l, n: days[k], p: list }]), 'utf8'), { level: 6 });
     index.push([days[k], off, gz.length, list.length]);
     bodies.push(gz);
@@ -98,10 +104,11 @@ function readEpg(file, a, b, cb) {
 }
 function inDays(d, a, b) { return (a === undefined || d >= a) && (b === undefined || d <= b); }
 
-/** Оставить в пачке передачи, начинающиеся в сутки [a, b] */
+/** Оставить в пачке передачи, идущие в сутки [a, b] (и начавшиеся раньше, но идущие в начале a) */
 function clipPack(pk, a, b) {
   if (a === undefined && b === undefined) return pk;
-  var p = pk.p.filter(function (r) { return inDays(dayOf(r[0]), a, b); });
+  var lo = a === undefined ? -Infinity : a * DAY, hi = b === undefined ? Infinity : (b + 1) * DAY;
+  var p = pk.p.filter(function (r) { return r[0] < hi && (r[1] > lo || r[0] >= lo); });
   return { s: pk.s, x: pk.x, l: pk.l, n: pk.n, p: p };
 }
 

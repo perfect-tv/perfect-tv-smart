@@ -105,11 +105,29 @@ export class Scroller {
     this.scrollTo(off);
   }
 
+  private lastScroll = 0;
+  private applied = NaN;
+
+  /**
+   * Сдвиг списка. Плавно (120 мс) — только редкие сдвиги: при листании подряд (чаще раза в 250 мс)
+   * и без «Плавных анимаций» — сразу. Каждая плавная прокрутка — 7–8 кадров пересборки экрана;
+   * при удержании клавиши они шли почти непрерывно (настройки на эмуляторе webOS 4 — 156% ядра у
+   * сборки экрана).
+   */
   scrollTo(off: number) {
     this.offset = off;
-    const t = 'translateY(' + (-Math.round(off)) + 'px)';
-    this.inner.style.webkitTransform = t;
-    this.inner.style.transform = t;
+    const y = -Math.round(off);
+    if (y!== this.applied) {
+      const now = Date.now;
+      const smooth = Anim.on && now - this.lastScroll > 250;
+      this.lastScroll = now;
+      this.applied = y;
+      const tr = smooth? '': 'none';
+      if ((this.inner as any).__tr!== tr) { (this.inner as any).__tr = tr; this.inner.style.webkitTransition = tr; this.inner.style.transition = tr; }
+      const t = 'translateY(' + y + 'px)';
+      this.inner.style.webkitTransform = t;
+      this.inner.style.transform = t;
+    }
     const h = this.box.clientHeight;
     const total = this.inner.offsetHeight;
     visible(this.fadeTop, off > 1);

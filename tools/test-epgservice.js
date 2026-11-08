@@ -77,7 +77,9 @@ server.listen(0,'127.0.0.1',async function(){
     // после загрузки канал собран в .epg по суткам: пачка на сутки, с готовым массивом p
     assert(packs.records.length>=2 && packs.records.length<=4, 'пачки по суткам: '+packs.records.length);
     var unpacked=[];
-    packs.records.forEach(function(r){ assert(r.value.p, 'p'); unpacked=unpacked.concat(r.value.p); });
+    // передача через полночь лежит и в следующих сутках — считаем по началу один раз
+    var seenStart={};
+    packs.records.forEach(function(r){ assert(r.value.p, 'p'); r.value.p.forEach(function(x){ if(!seenStart[x[0]]){ seenStart[x[0]]=1; unpacked.push(x);} }); });
     unpacked.sort(function(a,b){return a[0]-b[0];});
     assert.strictEqual(unpacked.length,60);
     assert.strictEqual(unpacked[0][2], 'Test 0 & more');

@@ -251,12 +251,35 @@ export class DomCtx {
 
   // ------------------------------------------------------------ текст
 
-  measureText(s: string): TextMetrics { this.m.font = this.font; return this.m.measureText(s); }
+  /**
+   * Ширина текста — из кэша: в каждом кадре меряются одни и те же названия, а назначение шрифта
+   * холсту для измерений и само измерение — четверть времени отрисовки гида (профиль на webOS 4).
+   */
+  private mFont = '';
+  private widths: { [k: string]: number } = {};
+  private widthCount = 0;
+  measureText(s: string): TextMetrics {
+    const k = this.font + '\u0001' + s;
+    let w = this.widths[k];
+    if (w === undefined) {
+      if (this.mFont !== this.font) { this.m.font = this.font; this.mFont = this.font; }
+      w = this.m.measureText(s).width;
+      if (++this.widthCount > 6000) { this.widths = {}; this.widthCount = 0; }
+      this.widths[k] = w;
+    }
+    return { width: w } as TextMetrics;
+  }
+
+  private sizes: { [font: string]: number } = {};
+  private fontSize(font: string): number {
+    let v = this.sizes[font];
+    if (v === undefined) { const m = /([\d.]+)px/.exec(font); v = this.sizes[font] = m ? parseFloat(m[1]) : 10; }
+    return v;
+  }
 
   fillText(s: string, x: number, y: number) {
     if (!s) return;
-    const m = /([\d.]+)px/.exec(this.font);
-    const size = m ? parseFloat(m[1]) : 10;
+    const size = this.fontSize(this.font);
     let left = x;
     if (this.textAlign === 'center' || this.textAlign === 'right' || this.textAlign === 'end') {
       const w = this.measureText(s).width;
@@ -277,7 +300,7 @@ export class DomCtx {
 
   /** drawImage(img, dx, dy, dw, dh) или (img, sx, sy, sw, sh, dx, dy, dw, dh) — <img> в рамке */
   drawImage(img: any, a: number, b: number, c: number, d: number, e?: number, f?: number, g?: number, h?: number) {
-    if (!img || !img.src) return;
+    if (!img) return;
     const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
     let sx = 0, sy = 0, sw = nw, sh = nh, dx = a, dy = b, dw = c, dh = d;
     if (e !== undefined) { sx = a; sy = b; sw = c; sh = d; dx = e; dy = f!; dw = g!; dh = h!; }
@@ -296,7 +319,8 @@ export class DomCtx {
     set(box, 'height', px(dh));
     const kx = dw / sw, ky = dh / sh;
     const im = box.firstChild;
-    if (im.__src !== img.src) { im.__src = img.src; im.src = img.src; }
+    // сравниваем сам объект картинки: чтение img.src каждый кадр собирает полный адрес заново
+    if (im.__img !== img) { im.__img = img; if (im.__src !== img.src) { im.__src = img.src; im.src = img.src; } }
     set(im, 'left', px(-sx * kx));
     set(im, 'top', px(-sy * ky));
     set(im, 'width', px(nw * kx));

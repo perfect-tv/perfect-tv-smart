@@ -32,5 +32,11 @@ new Promise(function (res) {
   return fin(3, null).then(function () { return prune(3); });
 }).then(function () {
   assert.ok(!fs.existsSync(pf.chanDir(S, 'b')), 'без переноса (keepFrom не задан) — b удалён');
+  // передача через полночь — и в следующих сутках (первой): интерфейсу хватает одних суток
+  var D0 = 20000 * D, buf = pf.encodeEpg('s', 'x', 1, [{ p: [[D0 - 600, D0 + 600, 'night'], [D0 + 600, D0 + 1200, 'day']] }]);
+  var f = path.join(process.env.PERFECTTV_DATA_DIR, 'span.epg'); fs.writeFileSync(f, buf);
+  return new Promise(function (res) { pf.readEpg(f, 20000, 20000, function (e, packs) { res(packs); }); });
+}).then(function (packs) {
+  assert.deepStrictEqual(packs[0].p.map(function (r) { return r[2]; }), ['night', 'day'], 'передача через полночь — в начале следующих суток');
   console.log('keep ok');
 }).then(null, function (e) { console.error(e); process.exit(1); });

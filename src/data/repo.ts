@@ -339,13 +339,20 @@ export class Repo {
       const all = merge(packs, shift);
       let n = 0;
       for (let i = 0; i < all.length; i++) {
-        const d = Math.floor((all[i].start - shift) / DAY);
+        let d = Math.floor((all[i].start - shift) / DAY);
+        // начавшаяся накануне и идущая в начале суток a (сервис кладёт её и в a) — в кусок a
+        if (d < a && all[i].stop - shift > a * DAY) d = a;
         if (d < a || d > b) continue;
         made[d - a].list.push(all[i]);
         n++;
       }
       done(n);
-    }, function () { done(0); });
+    }, function (e) {
+      if (e !== DROPPED) { done(0); return; }
+      // выброшен из очереди (строку пролистали) — сутки не помечать пустыми: запросятся снова
+      for (let d = a; d <= b; d++) if (self.chunks[ck + '|' + d] === made[d - a]) delete self.chunks[ck + '|' + d];
+      self.loadingOf[ck]--;
+    });
     function done(n: number) {
       for (let i = 0; i < made.length; i++) made[i].loading = false;
       self.loadingOf[ck]--;
@@ -376,9 +383,11 @@ export class Repo {
     if (e[2] && !ch.epgIcon) ch.epgIcon = e[2];
     const ck = ch.playlistId + ':' + ch.key;
     const shift = Math.round(ch.tvgShift * 3600);
-    // накануне — передача, начавшаяся вчера и идущая в from
-    const d0 = Math.floor((from - shift) / DAY) - 1, d1 = Math.floor((to - 1 - shift) / DAY);
+    // передача, начавшаяся накануне и идущая в начале суток, лежит и в их куске (сервис) — накануне
+    // не запрашиваем: одни сутки сервис отдаёт gzip-куском как есть
+    const d0 = Math.floor((from - shift) / DAY), d1 = Math.floor((to - 1 - shift) / DAY);
     const out: Programme[] = [];
+    let lastStart = -Infinity;
     let miss = -1;
     for (let d = d0; d <= d1 + 1; d++) {
       const c = d <= d1 ? this.chunk(ck, d) : undefined;
@@ -387,7 +396,11 @@ export class Repo {
       if (!c) continue;
       c.used = ++this.tick;
       const list = c.list;
-      for (let i = 0; i < list.length; i++) if (list[i].stop > from && list[i].start < to) out.push(list[i]);
+      for (let i = 0; i < list.length; i++) {
+        const p = list[i];
+        // передача через полночь — в двух кусках подряд: вторую копию пропускаем
+        if (p.stop > from && p.start < to && p.start > lastStart) { out.push(p); lastStart = p.start; }
+      }
     }
     return out;
   }
@@ -594,14 +607,26 @@ const fetchWaiting: (() => void)[] = [];
 let fetchActive = 0;
 function fetchQueued<T>(job: () => Promise<T>): Promise<T> {
   return new Promise<T>(function (resolve, reject) {
-    fetchWaiting.push(function () {
+    const run: any = function () {
       fetchActive++;
       job().then(function (v) { fetchActive--; pump(); resolve(v); }, function (e) { fetchActive--; pump(); reject(e); });
-    });
+    };
+    run.drop = function () { reject(DROPPED); };
+    fetchWaiting.push(run);
+    trimQueue();
     pump();
   });
 }
+const DROPPED = new Error('dropped');
 function pump() { while (fetchActive < 4 && fetchWaiting.length) fetchWaiting.pop()!(); }
+/** Ждущих — не больше 12: при быстром листании гида старые запросы (пролистанные строки) выбрасываются */
+const FETCH_WAIT_MAX = 12;
+function trimQueue() {
+  while (fetchWaiting.length > FETCH_WAIT_MAX) {
+    const drop = fetchWaiting.shift()! as any;
+    if (drop.drop) drop.drop();
+  }
+}
 
 /**
  * Пачки программы канала за сутки a…b (UTC источника): у сервиса — HTTP /prog (одни сутки —

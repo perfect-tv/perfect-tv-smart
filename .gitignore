@@ -4,3 +4,4 @@ out/
 *.ipk
 .cache/
 tools/.flussonic_cache/
+__pycache__/
