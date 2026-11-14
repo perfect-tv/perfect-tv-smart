@@ -292,6 +292,7 @@ export class Repo {
       }
       self.mapFor[pid] = out;
       self.mapLoading[pid] = false;
+      self.gen++;
       Bus.emit('epg', null);
     }, function () { self.mapLoading[pid] = false; });
   }
@@ -455,7 +456,12 @@ export class Repo {
   }
 
   /** Номер изменения программы канала (растёт, когда пришли его сутки) — перестроить списки */
-  revOf(ch: Channel): number { return this.rev[ch.playlistId + ':' + ch.key] || 0; }
+  /**
+   * Номер изменения программы канала (растёт, когда пришли его сутки, а также при сбросе программы и
+   * загрузке сопоставления — gen): по нему гид перестраивает списки и кэш ячеек строк.
+   */
+  revOf(ch: Channel): number { return (this.rev[ch.playlistId + ':' + ch.key] || 0) + this.gen * 1000000; }
+  private gen = 0;
 
   /** Программа читается (ещё не готова) */
   isLoading(ch: Channel): boolean {
@@ -497,6 +503,7 @@ export class Repo {
     // оглавление суток — перечитать (по каналу на запрос, только у открытых расписаний); пока
     // загрузка идёт — только пустые
     for (const k in this.dayIndex) if (done || !this.dayIndex[k].length) delete this.dayIndex[k];
+    this.gen++;
     // сопоставление могло дополниться
     for (const pid in this.mapFor) {
       if (done || Object.keys(this.mapFor[pid]).length === 0) delete this.mapFor[pid];
@@ -508,6 +515,7 @@ export class Repo {
     this.chunks = {};
     this.dayIndex = {};
     this.total = 0;
+    this.gen++;
     this.mapFor = {};
     Bus.emit('epg', null);
   }

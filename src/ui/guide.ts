@@ -193,6 +193,25 @@ export class GuideLayer implements Layer {
 
   // ------------------------------------------------------------ вид «Каналы + программа»
 
+  /**
+   * Ячейки строки сетки — из кэша по каналу, окну и номеру изменения программы канала: при
+   * листании те же строки рисуются кадр за кадром, а массив передач и ячейки создавались заново
+   * (сборщик мусора — заметная доля JS гида на ТВ).
+   */
+  private cellCache: { [k: string]: Cell[] } = {};
+  private cellCount = 0;
+  private rowCells(ch: Channel, from: number, to: number): Cell[] {
+    const repo = this.tv.repo;
+    const k = ch.playlistId + ':' + ch.key + '|' + from + '|' + to + '|' + repo.revOf(ch);
+    let v = this.cellCache[k];
+    if (!v) {
+      v = Cells.cells(repo.range(ch, from, to), from, to);
+      if (++this.cellCount > 300) { this.cellCache = {}; this.cellCount = 0; }
+      this.cellCache[k] = v;
+    }
+    return v;
+  }
+
   /** День передачи i списка; -1 — передач нет (даты из оглавления уже есть, сутки ещё грузятся) */
   private dayOf(i: number) { const p = this.plRows[i]; return p? Fmt.dayIndex(p.start): -1; }
 
@@ -954,7 +973,7 @@ export class GuideLayer implements Layer {
     const from = this.winStart, to = this.winStart + SPAN;
     const k = (gr - gl) / SPAN;
     const fc = focus && this.zone === Zone.GRID? Cells.at(this.tv.repo.around(ch, this.focusTime), this.focusTime): null;
-    const cells = Cells.cells(this.tv.repo.range(ch, from, to), from, to);
+    const cells = this.rowCells(ch, from, to);
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
       const cl = gl + (Math.max(cell.start, from) - from) * k;
