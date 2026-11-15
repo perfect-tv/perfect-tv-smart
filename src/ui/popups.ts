@@ -31,12 +31,12 @@ export abstract class PopupLayer implements Layer {
     }
     const self = this;
     // клик Magic Remote вне окна — закрыть
-    this.el.addEventListener('click', function (e) { if (e.target === self.el && self.back) self.back; });
+    this.el.addEventListener('click', function (e) { if (e.target === self.el && self.back) self.back(); });
     Anim.show(this.el);
   }
 
   /** Окно по содержимому — по центру по вертикали */
-  protected center {
+  protected center() {
     if (this.win.style.height) return;
     const h = this.win.offsetHeight;
     this.win.style.top = Math.round(Math.max(U.px(2.4), (U.h - h) / 2)) + 'px';
@@ -62,7 +62,7 @@ export abstract class PopupLayer implements Layer {
     const out: HTMLElement[] = [];
     for (let i = 0; i < labels.length; i++) {
       const b = el('div', 'btn', labels[i], box);
-      (function (k) { b.addEventListener('click', function  { onClick(k); }); })(i);
+      (function (k) { b.addEventListener('click', function () { onClick(k); }); })(i);
       out.push(b);
     }
     return out;
@@ -72,7 +72,7 @@ export abstract class PopupLayer implements Layer {
     for (let i = 0; i < views.length; i++) toggle(views[i], 'f', i === index);
   }
 
-  back?: void;
+  back?(): void;
 }
 
 /** Прокручиваемый столбец строк одинаковой высоты: фокус всегда виден, края гаснут */
@@ -117,13 +117,13 @@ export class Scroller {
   scrollTo(off: number) {
     this.offset = off;
     const y = -Math.round(off);
-    if (y!== this.applied) {
-      const now = Date.now;
+    if (y !== this.applied) {
+      const now = Date.now();
       const smooth = Anim.on && now - this.lastScroll > 250;
       this.lastScroll = now;
       this.applied = y;
-      const tr = smooth? '': 'none';
-      if ((this.inner as any).__tr!== tr) { (this.inner as any).__tr = tr; this.inner.style.webkitTransition = tr; this.inner.style.transition = tr; }
+      const tr = smooth ? '' : 'none';
+      if ((this.inner as any).__tr !== tr) { (this.inner as any).__tr = tr; this.inner.style.webkitTransition = tr; this.inner.style.transition = tr; }
       const t = 'translateY(' + y + 'px)';
       this.inner.style.webkitTransform = t;
       this.inner.style.transform = t;
@@ -147,8 +147,8 @@ export interface ListItem {
   channel?: Channel | null;
   sub?: string;
   progress?: number;
-  action:  => void;
-  long?:  => void;
+  action: () => void;
+  long?: () => void;
 }
 
 /** Список: ↑/↓ (по кругу), PG± — страница, OK — действие, удерж. OK — long */
@@ -158,7 +158,7 @@ export class ListLayer extends PopupLayer {
   private scroller: Scroller | null = null;
   private rowH = U.px(3.6);
 
-  constructor(parent: HTMLElement, title: string, private items: ListItem[], private onBack:  => void, opts?: { ch?: Channel | null; subtitle?: string; width?: number; empty?: string; rowEm?: number }) {
+  constructor(parent: HTMLElement, title: string, private items: ListItem[], private onBack: () => void, opts?: { ch?: Channel | null; subtitle?: string; width?: number; empty?: string; rowEm?: number }) {
     super(parent, (opts && opts.width) || 46);
     const o = opts || {};
     if (o.rowEm) this.rowH = U.px(o.rowEm);
@@ -179,20 +179,20 @@ export class ListLayer extends PopupLayer {
         const tx = el('div', 'grow', null, r);
         el('div', 'el', it.label, tx);
         if (it.sub) el('div', 'el t60', it.sub, tx).style.fontSize = '1.15rem';
-        if (it.progress!== undefined) { const pb = el('div', 'pbar', null, tx); el('i', '', null, pb).style.width = Math.round(it.progress * 100) + '%'; }
+        if (it.progress !== undefined) { const pb = el('div', 'pbar', null, tx); el('i', '', null, pb).style.width = Math.round(it.progress * 100) + '%'; }
         if (it.value) el('span', 'v', it.value, r);
         (function (k) {
-          r.addEventListener('click', function  { self.index = k; self.focus; self.enter; });
-          r.addEventListener('mousemove', function  { if (self.index!== k) { self.index = k; self.focus; } });
+          r.addEventListener('click', function () { self.index = k; self.focus(); self.enter(); });
+          r.addEventListener('mousemove', function () { if (self.index !== k) { self.index = k; self.focus(); } });
         })(i);
         this.rows.push(r);
       }
     }
-    this.center;
-    this.focus;
+    this.center();
+    this.focus();
   }
 
-  private focus {
+  private focus() {
     this.select(this.rows, this.index);
     if (this.scroller) this.scroller.reveal(this.index * this.rowH, (this.index + 1) * this.rowH, this.rowH);
   }
@@ -200,33 +200,33 @@ export class ListLayer extends PopupLayer {
   key(name: string) {
     const n = this.items.length;
     if (!n) return;
-    const page = Math.max(1, Math.floor((this.scroller? this.scroller.box.clientHeight: 0) / this.rowH) - 1);
+    const page = Math.max(1, Math.floor((this.scroller ? this.scroller.box.clientHeight : 0) / this.rowH) - 1);
     if (name === 'up') this.index = (this.index - 1 + n) % n;
     else if (name === 'down') this.index = (this.index + 1) % n;
     else if (name === 'pgup') this.index = Math.max(0, this.index - page);
     else if (name === 'pgdown') this.index = Math.min(n - 1, this.index + page);
     else return;
-    this.focus;
+    this.focus();
   }
 
-  wheel(dy: number) { this.key(dy > 0? 'down': 'up'); }
-  enter { const it = this.items[this.index]; if (it) it.action; }
-  long { const it = this.items[this.index]; if (it && it.long) it.long; }
-  back { this.onBack; }
+  wheel(dy: number) { this.key(dy > 0 ? 'down' : 'up'); }
+  enter() { const it = this.items[this.index]; if (it) it.action(); }
+  long() { const it = this.items[this.index]; if (it && it.long) it.long(); }
+  back() { this.onBack(); }
 }
 
 /** Сообщение с кнопками (экран ошибки, подтверждение) */
 export class MessageLayer extends PopupLayer {
   private index = 0;
   private views: HTMLElement[];
-  constructor(parent: HTMLElement, title: string, text: string, private labels: string[], private onAction: (i: number) => void, private onBack:  => void) {
+  constructor(parent: HTMLElement, title: string, text: string, private labels: string[], private onAction: (i: number) => void, private onBack: () => void) {
     super(parent, 44);
     this.head(null, title);
     if (text) { const p = el('div', 't75', text, this.win); p.style.cssText = 'font-size:1.35rem;line-height:1.9rem;white-space:pre-line'; }
     const self = this;
     this.views = this.buttons(labels, function (i) { self.onAction(i); });
     this.select(this.views, 0);
-    this.center;
+    this.center();
   }
   key(name: string) {
     const n = this.views.length;
@@ -235,8 +235,8 @@ export class MessageLayer extends PopupLayer {
     else return;
     this.select(this.views, this.index);
   }
-  enter { this.onAction(this.index); }
-  back { this.onBack; }
+  enter() { this.onAction(this.index); }
+  back() { this.onBack(); }
 }
 
 /** Карточка передачи: время, название, описание (↑/↓ — прокрутка), кнопки ←/→ */
@@ -244,9 +244,9 @@ export class DetailsLayer extends PopupLayer {
   private index = 0;
   private views: HTMLElement[];
   private scroller: Scroller;
-  constructor(parent: HTMLElement, ch: Channel, time: string, title: string, desc: string, labels: string[], private onAction: (i: number) => void, private onBack:  => void) {
+  constructor(parent: HTMLElement, ch: Channel, time: string, title: string, desc: string, labels: string[], private onAction: (i: number) => void, private onBack: () => void) {
     super(parent, 56);
-    this.head(ch, ch.title, time);
+    this.head(ch, ch.title(), time);
     const t = el('div', '', title, this.win);
     t.style.cssText = 'font-size:1.8rem;font-weight:700;margin:0.4rem 0 0.8rem;line-height:2.3rem';
     this.scroller = new Scroller(this.win, U.px(16), 'rgba(30,31,32,.94)');
@@ -259,7 +259,7 @@ export class DetailsLayer extends PopupLayer {
     const ih = this.scroller.inner.offsetHeight;
     if (ih < U.px(16)) this.scroller.box.style.height = ih + 'px';
     this.scroller.scrollTo(0);
-    this.center;
+    this.center();
   }
   key(name: string) {
     const n = this.views.length;
@@ -270,20 +270,20 @@ export class DetailsLayer extends PopupLayer {
     else return;
     this.select(this.views, this.index);
   }
-  wheel(dy: number) { this.scroller.by(dy > 0? U.px(4): -U.px(4)); }
-  enter { if (this.views.length) this.onAction(this.index); else this.onBack; }
-  back { this.onBack; }
+  wheel(dy: number) { this.scroller.by(dy > 0 ? U.px(4) : -U.px(4)); }
+  enter() { if (this.views.length) this.onAction(this.index); else this.onBack(); }
+  back() { this.onBack(); }
 }
 
 /** Окно «Управление»: клавиши по разделам; ↑/↓ — прокрутка, PG± — страница, OK/Назад — закрыть */
 export class HelpLayer extends PopupLayer {
   private scroller: Scroller;
-  constructor(parent: HTMLElement, private onClose:  => void) {
+  constructor(parent: HTMLElement, private onClose: () => void) {
     super(parent, 64, 0.86);
     this.head(null, str('controls'));
     this.scroller = new Scroller(this.win, U.h * 0.86 - U.px(6), 'rgba(30,31,32,.94)');
     const col = this.scroller.inner;
-    const text = HelpLayer.text;
+    const text = HelpLayer.text();
     for (let i = 0; i < text.length; i++) {
       const s = el('div', 'gl', text[i][0], col);
       s.style.paddingLeft = '0';
@@ -300,8 +300,8 @@ export class HelpLayer extends PopupLayer {
     this.scroller.scrollTo(0);
   }
 
-  /** Текст держать в согласии с (функция: строки — на текущем языке) */
-  static text: [string, [string, string][]][] {
+  /** Текст держать в согласии с docs/controls.md (функция: строки — на текущем языке) */
+  static text(): [string, [string, string][]][] {
     return [
       [str('player'), [
         ['← / →', str('previous_next_channel_of_the')],
@@ -364,9 +364,9 @@ export class HelpLayer extends PopupLayer {
     else if (name === 'pgup') this.scroller.by(-page);
     else if (name === 'pgdown') this.scroller.by(page);
   }
-  wheel(dy: number) { this.scroller.by(dy > 0? U.px(4): -U.px(4)); }
-  enter { this.onClose; }
-  back { this.onClose; }
+  wheel(dy: number) { this.scroller.by(dy > 0 ? U.px(4) : -U.px(4)); }
+  enter() { this.onClose(); }
+  back() { this.onClose(); }
 }
 
 /**
@@ -383,7 +383,7 @@ export class ReminderLayer extends PopupLayer {
   private btnViews: HTMLElement[] = [];
   private touched = false;
 
-  constructor(parent: HTMLElement, private resolveChannel: (r: Reminder) => Channel, private onAct: (r: Reminder, action: string) => void, private onClose:  => void) {
+  constructor(parent: HTMLElement, private resolveChannel: (r: Reminder) => Channel, private onAct: (r: Reminder, action: string) => void, private onClose: () => void) {
     super(parent, 50);
     this.body = el('div', '', null, this.win);
     this.btnBox = el('div', '', null, this.win);
@@ -395,7 +395,7 @@ export class ReminderLayer extends PopupLayer {
     if (this.has(r.id)) return;
     this.items.push(r);
     if (!this.touched) this.items.sort(function (a, b) { return a.start - b.start; });
-    this.render;
+    this.render();
   }
 
   drop(id: string) {
@@ -404,25 +404,27 @@ export class ReminderLayer extends PopupLayer {
     this.items.splice(i, 1);
     if (this.index >= this.items.length) this.index = Math.max(0, this.items.length - 1);
     this.button = 0;
-    if (!this.items.length) { this.onClose; return; }
-    this.render;
+    if (!this.items.length) { this.onClose(); return; }
+    this.render();
   }
 
   private actions(r: Reminder): [string, string][] {
-    const t = Clock.now;
+    const t = Clock.now();
     const missed = isMissed(r, t) && inArchive(r, t);
-    const a: [string, string][] = missed? [['archive', str('watch_from_archive')], ['later', str('later')], ['delete', str('delete')]]: [['watch', str('watch')], ['snooze', str('snooze_5_min')], ['close', str('close')]];
+    const a: [string, string][] = missed
+      ? [['archive', str('watch_from_archive')], ['later', str('later')], ['delete', str('delete')]]
+      : [['watch', str('watch')], ['snooze', str('snooze_5_min')], ['close', str('close')]];
     if (this.items.length > 1) a.push(['closeAll', str('close_all')]);
     return a;
   }
 
-  private render {
+  private render() {
     const r = this.items[this.index];
     if (!r) return;
     const b = this.body;
     while (b.firstChild) b.removeChild(b.firstChild);
     const ch = this.resolveChannel(r);
-    const t = Clock.now;
+    const t = Clock.now();
     let state: string;
     if (isMissed(r, t)) state = str('missed');
     else if (r.start <= t) state = str('already_on');
@@ -446,31 +448,31 @@ export class ReminderLayer extends PopupLayer {
     this.btnViews = [];
     for (let i = 0; i < acts.length; i++) {
       const v = el('div', 'btn', acts[i][1], box);
-      (function (k) { v.addEventListener('click', function  { self.button = k; self.enter; }); })(i);
+      (function (k) { v.addEventListener('click', function () { self.button = k; self.enter(); }); })(i);
       this.btnViews.push(v);
     }
     if (this.button >= acts.length) this.button = 0;
     this.select(this.btnViews, this.button);
     this.win.style.height = '';
-    this.center;
+    this.center();
   }
 
   key(name: string) {
     const n = this.items.length;
-    if (name === 'up' && n > 1) { this.index = (this.index - 1 + n) % n; this.touched = true; this.button = 0; this.render; }
-    else if (name === 'down' && n > 1) { this.index = (this.index + 1) % n; this.touched = true; this.button = 0; this.render; }
+    if (name === 'up' && n > 1) { this.index = (this.index - 1 + n) % n; this.touched = true; this.button = 0; this.render(); }
+    else if (name === 'down' && n > 1) { this.index = (this.index + 1) % n; this.touched = true; this.button = 0; this.render(); }
     else if (name === 'left') { this.button = (this.button - 1 + this.btnViews.length) % this.btnViews.length; this.select(this.btnViews, this.button); }
     else if (name === 'right') { this.button = (this.button + 1) % this.btnViews.length; this.select(this.btnViews, this.button); }
   }
 
-  enter {
+  enter() {
     const r = this.items[this.index];
     if (!r) return;
     const a = this.actions(r)[this.button][0];
     this.onAct(r, a);
   }
 
-  back { this.onAct(this.items[this.index], 'dismiss'); }
+  back() { this.onAct(this.items[this.index], 'dismiss'); }
 }
 
 /** Поле ввода формы: <input> (на ТВ — экранная клавиатура системы) */
@@ -481,14 +483,14 @@ export interface Field { label: string; value: string; type?: string; input?: HT
  * ←/→ — кнопки.
  */
 /** Строка над формой: подпись и кнопка (выбор языка в окне первого запуска) */
-export interface FormLead { label: string; button: string; action:  => void }
+export interface FormLead { label: string; button: string; action: () => void }
 
 export class FormLayer extends PopupLayer {
   private index = 0;
   private button = 0;
   private btnViews: HTMLElement[];
   private leadView: HTMLElement | null = null;
-  constructor(parent: HTMLElement, title: string, private fields: Field[], labels: string[], private onAction: (i: number, values: string[]) => void, private onBack:  => void, note?: string,
+  constructor(parent: HTMLElement, title: string, private fields: Field[], labels: string[], private onAction: (i: number, values: string[]) => void, private onBack: () => void, note?: string,
     private lead?: FormLead, focusLead?: boolean) {
     super(parent, 60);
     if (lead) {
@@ -498,7 +500,7 @@ export class FormLayer extends PopupLayer {
       el('div', 't60', lead.label, row).style.cssText = 'font-size:1.3rem;margin-right:1rem';
       const b = el('div', 'btn', lead.button, row);
       b.style.marginRight = '0';
-      b.addEventListener('click', function  { lead.action; });
+      b.addEventListener('click', function () { lead.action(); });
       this.leadView = b;
       if (focusLead) this.index = -1;
     }
@@ -520,34 +522,34 @@ export class FormLayer extends PopupLayer {
           // стрелки ↑/↓ и OK — не в поле, а форме
           const c = e.keyCode;
           if (c === 38 || c === 40 || c === 13 || c === 461 || c === 27) {
-            e.preventDefault;
-            e.stopPropagation;
-            inp.blur;
+            e.preventDefault();
+            e.stopPropagation();
+            inp.blur();
             if (c === 38) self.key('up'); else if (c === 40) self.key('down');
             else if (c === 461 || c === 27) { /* закрыть только клавиатуру */ }
             else self.key('down');
           }
         });
-        inp.addEventListener('focus', function  { self.index = k; self.applyFocus(false); });
+        inp.addEventListener('focus', function () { self.index = k; self.applyFocus(false); });
       })(i);
     }
-    this.btnViews = this.buttons(labels, function (i) { self.onAction(i, self.values); });
+    this.btnViews = this.buttons(labels, function (i) { self.onAction(i, self.values()); });
     this.applyFocus(false);
-    this.center;
+    this.center();
   }
 
-  values: string[] { return this.fields.map(function (f) { return f.input? f.input.value.trim: ''; }); }
+  values(): string[] { return this.fields.map(function (f) { return f.input ? f.input.value.trim() : ''; }); }
 
   private applyFocus(open: boolean) {
     if (this.leadView) toggle(this.leadView, 'f', this.index === -1);
     for (let i = 0; i < this.fields.length; i++) toggle(this.fields[i].input!, 'f', this.index === i);
-    this.select(this.btnViews, this.index === this.fields.length? this.button: -1);
-    if (open && this.index < this.fields.length) this.fields[this.index].input!.focus;
+    this.select(this.btnViews, this.index === this.fields.length ? this.button : -1);
+    if (open && this.index < this.fields.length) this.fields[this.index].input!.focus();
   }
 
   key(name: string) {
     const n = this.fields.length;
-    if (name === 'up') this.index = Math.max(this.leadView? -1: 0, this.index - 1);
+    if (name === 'up') this.index = Math.max(this.leadView ? -1 : 0, this.index - 1);
     else if (name === 'down') this.index = Math.min(n, this.index + 1);
     else if (name === 'left' && this.index === n) this.button = Math.max(0, this.button - 1);
     else if (name === 'right' && this.index === n) this.button = Math.min(this.btnViews.length - 1, this.button + 1);
@@ -555,16 +557,16 @@ export class FormLayer extends PopupLayer {
     this.applyFocus(false);
   }
 
-  enter {
-    if (this.index === -1 && this.lead) { this.lead.action; return; }
+  enter() {
+    if (this.index === -1 && this.lead) { this.lead.action(); return; }
     if (this.index < this.fields.length) { this.applyFocus(true); return; }
-    this.onAction(this.button, this.values);
+    this.onAction(this.button, this.values());
   }
 
-  back {
+  back() {
     const a = document.activeElement as HTMLElement | null;
-    if (a && a.tagName === 'INPUT') { a.blur; return; }
-    this.onBack;
+    if (a && a.tagName === 'INPUT') { a.blur(); return; }
+    this.onBack();
   }
 }
 
@@ -573,11 +575,11 @@ export { setText };
 /** Журнал приложения (последние строки консоли и ошибки): ↑/↓ — прокрутка, OK/Назад — закрыть */
 export class LogLayer extends PopupLayer {
   private scroller: Scroller;
-  constructor(parent: HTMLElement, private onClose:  => void) {
+  constructor(parent: HTMLElement, private onClose: () => void) {
     super(parent, 90, 0.9);
     this.head(null, str('log'));
     this.scroller = new Scroller(this.win, U.h * 0.9 - U.px(6), 'rgba(30,31,32,.94)');
-    const pre = el('div', 't85', Log.lines.join('\n'), this.scroller.inner);
+    const pre = el('div', 't85', Log.lines().join('\n'), this.scroller.inner);
     pre.style.cssText = 'font-family:monospace;font-size:1.1rem;line-height:1.5rem;white-space:pre-wrap;word-break:break-all';
     this.scroller.scrollTo(1e9);
     this.scroller.by(0);
@@ -589,7 +591,7 @@ export class LogLayer extends PopupLayer {
     else if (name === 'pgup') this.scroller.by(-page);
     else if (name === 'pgdown') this.scroller.by(page);
   }
-  wheel(dy: number) { this.scroller.by(dy > 0? U.px(4.5): -U.px(4.5)); }
-  enter { this.onClose; }
-  back { this.onClose; }
+  wheel(dy: number) { this.scroller.by(dy > 0 ? U.px(4.5) : -U.px(4.5)); }
+  enter() { this.onClose(); }
+  back() { this.onClose(); }
 }

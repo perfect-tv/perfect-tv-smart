@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Переводы интерфейса:
+ * Переводы интерфейса (docs/translating.md):
  *   npm run i18n                          — сколько переведено по каждому языку, что не переведено
  *   npm run i18n -- add <код> <Название> [правило]
  *                                         — новый язык: strings/<код>.json (копия английского —
@@ -18,7 +18,7 @@ const langsTs = path.join(root, 'src/core/langs.ts');
 const read = (c) => JSON.parse(fs.readFileSync(path.join(dir, c + '.json'), 'utf8'));
 const write = (c, t) => fs.writeFileSync(path.join(dir, c + '.json'), JSON.stringify(t, null, 1) + '\n');
 const en = read('en');
-const keys = Object.keys(en).filter((k) =>!k.startsWith('_'));
+const keys = Object.keys(en).filter((k) => !k.startsWith('_'));
 const RULES = ['en', 'fr', 'ru', 'pl', 'cs', 'lt', 'lv', 'ro', 'other'];
 
 const [cmd, code, name, rule] = process.argv.slice(2);
@@ -26,18 +26,18 @@ const [cmd, code, name, rule] = process.argv.slice(2);
 function sync(c) {
   const t = read(c);
   const out = { _name: t._name || c, _plural: t._plural || 'en' };
-  for (const k of keys) out[k] = k in t? t[k]: en[k];
+  for (const k of keys) out[k] = k in t ? t[k] : en[k];
   write(c, out);
   return out;
 }
 
 if (cmd === 'add') {
-  if (!/^[a-z]{2,3}(-[a-z]{2})?$/.test(code || '') ||!name) {
+  if (!/^[a-z]{2,3}(-[a-z]{2})?$/.test(code || '') || !name) {
     console.log('Использование: npm run i18n -- add <код ISO 639-1, например de> <Название на языке, например Deutsch> [правило: ' + RULES.join('|') + ']');
     process.exit(2);
   }
   if (fs.existsSync(path.join(dir, code + '.json'))) { console.log('strings/' + code + '.json уже есть'); process.exit(1); }
-  if (rule &&!RULES.includes(rule)) { console.log('Правило — одно из: ' + RULES.join(', ')); process.exit(2); }
+  if (rule && !RULES.includes(rule)) { console.log('Правило — одно из: ' + RULES.join(', ')); process.exit(2); }
   const t = { _name: name, _plural: rule || 'en' };
   for (const k of keys) t[k] = en[k];
   write(code, t);
@@ -52,23 +52,23 @@ if (cmd === 'add') {
 }
 
 if (cmd === 'sync') {
-  if (!code ||!fs.existsSync(path.join(dir, code + '.json'))) { console.log('Нет strings/' + code + '.json'); process.exit(1); }
+  if (!code || !fs.existsSync(path.join(dir, code + '.json'))) { console.log('Нет strings/' + code + '.json'); process.exit(1); }
   sync(code);
   console.log('strings/' + code + '.json приведён к английскому (порядок, новые строки — по-английски).');
   process.exit(0);
 }
 
 // отчёт
-for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort) {
+for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) {
   const c = f.replace(/\.json$/, '');
   if (c === 'en') continue;
   const t = read(c);
-  const missing = keys.filter((k) =>!(k in t));
+  const missing = keys.filter((k) => !(k in t));
   const same = keys.filter((k) => k in t && JSON.stringify(t[k]) === JSON.stringify(en[k]) && /[a-z]{3}/i.test(JSON.stringify(en[k])));
-  const extra = Object.keys(t).filter((k) =>!k.startsWith('_') &&!(k in en));
+  const extra = Object.keys(t).filter((k) => !k.startsWith('_') && !(k in en));
   const done = keys.length - missing.length - same.length;
   console.log(`${c} (${t._name || '?'}): переведено ${done} из ${keys.length} (${Math.round(100 * done / keys.length)}%)` +
-    (missing.length? `, нет ${missing.length}`: '') + (same.length? `, как в английском ${same.length}`: '') + (extra.length? `, лишних ${extra.length}`: ''));
+    (missing.length ? `, нет ${missing.length}` : '') + (same.length ? `, как в английском ${same.length}` : '') + (extra.length ? `, лишних ${extra.length}` : ''));
   if (process.argv.includes('-v')) {
     if (missing.length) console.log('  нет: ' + missing.join(', '));
     if (same.length) console.log('  как в английском (проверить): ' + same.join(', '));

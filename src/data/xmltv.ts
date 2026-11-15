@@ -1,6 +1,6 @@
 /**
- * Потоковый разборщик XMLTV на уровне байтов (§5). Куски Uint8Array любой длины
- * подаются в push: элемент на границе кусков доклеивается. У <programme> сначала читается
+ * Потоковый разборщик XMLTV на уровне байтов (docs/TZ.md, §5). Куски Uint8Array любой длины
+ * подаются в push(): элемент на границе кусков доклеивается. У <programme> сначала читается
  * открывающий тег; канал сравнивается побайтно с каналом предыдущей передачи (XMLTV идёт по
  * каналам подряд), ненужная передача пропускается поиском «</programme>» без декодирования.
  * Нужные элементы декодируются (UTF-8 или кодировка пролога) и разбираются по строке.
@@ -32,20 +32,20 @@ function isNameEnd(c: number) { return c === GT || c === SLASH || isSpace(c); }
 
 /** Позиция p в b начиная с from (или −1) */
 export function indexOfBytes(b: Uint8Array, p: Uint8Array, from: number, to?: number): number {
-  const end = (to === undefined? b.length: to) - p.length;
+  const end = (to === undefined ? b.length : to) - p.length;
   const c0 = p[0];
   const n = p.length;
   outer: for (let i = from; i <= end; i++) {
-    if (b[i]!== c0) continue;
-    for (let k = 1; k < n; k++) if (b[i + k]!== p[k]) continue outer;
+    if (b[i] !== c0) continue;
+    for (let k = 1; k < n; k++) if (b[i + k] !== p[k]) continue outer;
     return i;
   }
   return -1;
 }
 
 function equalsAt(b: Uint8Array, from: number, to: number, name: Uint8Array): boolean {
-  if (to - from!== name.length) return false;
-  for (let k = 0; k < name.length; k++) if (b[from + k]!== name[k]) return false;
+  if (to - from !== name.length) return false;
+  for (let k = 0; k < name.length; k++) if (b[from + k] !== name[k]) return false;
   return true;
 }
 
@@ -55,13 +55,13 @@ export function unescapeXml(s: string): string {
   if (s.indexOf('&') < 0) return s;
   return s.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, function (m, e: string) {
     if (e.charAt(0) === '#') {
-      const code = e.charAt(1) === 'x' || e.charAt(1) === 'X'? parseInt(e.substring(2), 16): parseInt(e.substring(1), 10);
+      const code = e.charAt(1) === 'x' || e.charAt(1) === 'X' ? parseInt(e.substring(2), 16) : parseInt(e.substring(1), 10);
       if (!isFinite(code) || code <= 0) return m;
       if (code > 0xffff) { const c = code - 0x10000; return String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 0x3ff)); }
       return String.fromCharCode(code);
     }
     const r = ENT[e];
-    return r!== undefined? r: m;
+    return r !== undefined ? r : m;
   });
 }
 
@@ -71,7 +71,7 @@ export function textOf(s: string): string {
   let i = 0;
   for (;;) {
     const c = s.indexOf('<![CDATA[', i);
-    const part = c < 0? s.substring(i): s.substring(i, c);
+    const part = c < 0 ? s.substring(i) : s.substring(i, c);
     out += unescapeXml(part.replace(/<[^>]*>/g, ''));
     if (c < 0) break;
     const e = s.indexOf(']]>', c + 9);
@@ -86,15 +86,15 @@ function attr(tag: string, name: string): string {
   const re = new RegExp('\\s' + name + '\\s*=\\s*("([^"]*)"|\'([^\']*)\')');
   const m = re.exec(tag);
   if (!m) return '';
-  return unescapeXml(m[2]!== undefined? m[2]: m[3] || '');
+  return unescapeXml(m[2] !== undefined ? m[2] : m[3] || '');
 }
 
 /** Дни от 1970-01-01 (алгоритм Howard Hinnant) */
 function daysFromCivil(y0: number, m: number, d: number): number {
-  const y = m <= 2? y0 - 1: y0;
-  const era = Math.floor((y >= 0? y: y - 399) / 400);
+  const y = m <= 2 ? y0 - 1 : y0;
+  const era = Math.floor((y >= 0 ? y : y - 399) / 400);
   const yoe = y - era * 400;
-  const doy = Math.floor((153 * (m + (m > 2? -3: 9)) + 2) / 5) + d - 1;
+  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
   const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
   return era * 146097 + doe - 719468;
 }
@@ -102,7 +102,7 @@ function daysFromCivil(y0: number, m: number, d: number): number {
 /** Время XMLTV «yyyyMMddHHmmss ±hhmm»; секунд, минут и смещения может не быть (тогда UTC). 0 — не разобрано */
 export function parseTime(s0: string | null | undefined): number {
   if (!s0) return 0;
-  const s = s0.trim;
+  const s = s0.trim();
   let i = 0;
   function num(len: number): number {
     if (i + len > s.length) return -1;
@@ -121,7 +121,7 @@ export function parseTime(s0: string | null | undefined): number {
   while (i < s.length && s.charAt(i) === ' ') i++;
   let offset = 0;
   if (i < s.length && (s.charAt(i) === '+' || s.charAt(i) === '-')) {
-    const sign = s.charAt(i) === '-'? -1: 1;
+    const sign = s.charAt(i) === '-' ? -1 : 1;
     i++;
     const oh = num(2);
     if (i < s.length && s.charAt(i) === ':') i++;
@@ -137,7 +137,7 @@ class Pick {
   private rank = 1 << 30;
   constructor(private langs: string[]) {}
   offer(lang: string, text: string) {
-    let r = lang? this.langs.indexOf(lang.toLowerCase): -1;
+    let r = lang ? this.langs.indexOf(lang.toLowerCase()) : -1;
     if (r < 0) r = this.langs.length;
     // при равном приоритете остаётся первое
     if (r < this.rank) { this.rank = r; this.value = text; }
@@ -151,7 +151,7 @@ const CHILD_RE = /<(title|sub-title|desc|category|icon|display-name)\b([^>]*?)(\
  * ещё не наследник Uint8Array и subarray у него нет — только slice (тоже без копии).
  */
 function view(b: Uint8Array, from: number, to: number): Uint8Array {
-  return typeof b.subarray === 'function'? b.subarray(from, to): (b as any).slice(from, to);
+  return typeof b.subarray === 'function' ? b.subarray(from, to) : (b as any).slice(from, to);
 }
 
 export class XmltvParser {
@@ -176,9 +176,10 @@ export class XmltvParser {
   constructor(
     private langs: string[],
     private onChannel: (c: EpgChannelRaw) => void,
-    private beforeProgrammes:  => void,
+    private beforeProgrammes: () => void,
     private wanted: (id: string) => boolean,
-    private onProgramme: (p: EpgProgramme) => void,) {
+    private onProgramme: (p: EpgProgramme) => void,
+  ) {
     this.decoder = new TextDecoder('utf-8');
   }
 
@@ -203,7 +204,7 @@ export class XmltvParser {
   }
 
   /** Конец потока */
-  end {
+  end() {
     this.run(true);
     this.buf = new Uint8Array(0);
     this.len = 0;
@@ -219,7 +220,7 @@ export class XmltvParser {
   private keepTail(used: number) {
     if (used >= this.len) { this.buf = new Uint8Array(0); this.len = 0; return; }
     if (used > 0) {
-      // копия хвоста, не.slice: у Uint8Array его нет в Node 0.12 (сервис на webOS 3–5)
+      // копия хвоста, не .slice(): у Uint8Array его нет в Node 0.12 (сервис на webOS 3–5)
       const tail = new Uint8Array(this.len - used);
       tail.set(view(this.buf, used, this.len));
       this.buf = tail;
@@ -235,43 +236,43 @@ export class XmltvParser {
     let pos = 0;
     while (pos < n) {
       let lt = pos;
-      while (lt < n && b[lt]!== LT) lt++;
+      while (lt < n && b[lt] !== LT) lt++;
       if (lt >= n) return n;
       pos = lt;
-      if (lt + 1 >= n) return final? n: lt;
+      if (lt + 1 >= n) return final ? n : lt;
       const c = b[lt + 1];
       if (c === QM) {
         const e = indexOfBytes(b, B_PI_END, lt + 2, n);
-        if (e < 0) return final? n: lt;
+        if (e < 0) return final ? n : lt;
         this.prolog(this.latin1(lt, e));
         pos = e + 2;
         continue;
       }
       if (c === BANG) {
-        if (lt + 4 > n) return final? n: lt;
+        if (lt + 4 > n) return final ? n : lt;
         if (equalsAt(b, lt, lt + 4, B_COMMENT)) {
           const e = indexOfBytes(b, B_COMMENT_END, lt + 4, n);
-          if (e < 0) return final? n: lt;
+          if (e < 0) return final ? n : lt;
           pos = e + 3;
         } else {
           let e = lt + 2;
-          while (e < n && b[e]!== GT) e++;
-          if (e >= n) return final? n: lt;
+          while (e < n && b[e] !== GT) e++;
+          if (e >= n) return final ? n : lt;
           pos = e + 1;
         }
         continue;
       }
       // открывающий тег целиком
       const te = this.tagEnd(lt + 1, n);
-      if (te < 0) return final? n: lt;
+      if (te < 0) return final ? n : lt;
       let ne = lt + 1;
-      while (ne < te &&!isNameEnd(b[ne])) ne++;
+      while (ne < te && !isNameEnd(b[ne])) ne++;
       const selfClosed = b[te - 1] === SLASH;
       if (equalsAt(b, lt + 1, ne, B_CHANNEL)) {
         let end = te + 1;
         if (!selfClosed) {
-          const e = indexOfBytes(b, B_CHANNEL_END, this.resumeAt > te? this.resumeAt: te + 1, n);
-          if (e < 0) { this.resumeAt = Math.max(te + 1, n - B_CHANNEL_END.length); return final? n: lt; }
+          const e = indexOfBytes(b, B_CHANNEL_END, this.resumeAt > te ? this.resumeAt : te + 1, n);
+          if (e < 0) { this.resumeAt = Math.max(te + 1, n - B_CHANNEL_END.length); return final ? n : lt; }
           end = e + B_CHANNEL_END.length;
         }
         this.resumeAt = -1;
@@ -289,8 +290,8 @@ export class XmltvParser {
         // конец элемента
         let end = te + 1;
         if (!selfClosed) {
-          const e = indexOfBytes(b, B_PROGRAMME_END, this.resumeAt > te? this.resumeAt: te + 1, n);
-          if (e < 0) { this.resumeAt = Math.max(te + 1, n - B_PROGRAMME_END.length); return final? n: lt; }
+          const e = indexOfBytes(b, B_PROGRAMME_END, this.resumeAt > te ? this.resumeAt : te + 1, n);
+          if (e < 0) { this.resumeAt = Math.max(te + 1, n - B_PROGRAMME_END.length); return final ? n : lt; }
           end = e + B_PROGRAMME_END.length;
         }
         this.resumeAt = -1;
@@ -298,7 +299,7 @@ export class XmltvParser {
           this.programmesStarted = true;
           this.channelsDirty = false;
           this.lastLen = -1;
-          this.beforeProgrammes;
+          this.beforeProgrammes();
         }
         const r = this.attrRange(ne, te, B_CHANNEL_ATTR);
         if (r === null) { this.skipped++; pos = end; continue; }
@@ -312,7 +313,7 @@ export class XmltvParser {
         }
         if (!this.lastWanted) { this.skipped++; pos = end; continue; }
         const open = this.decode(lt, te + 1);
-        this.programme(this.lastId, attr(open, 'start'), attr(open, 'stop'), selfClosed? '': this.decode(te + 1, end));
+        this.programme(this.lastId, attr(open, 'start'), attr(open, 'stop'), selfClosed ? '' : this.decode(te + 1, end));
         pos = end;
         continue;
       }
@@ -348,17 +349,17 @@ export class XmltvParser {
     while (i < to) {
       while (i < to && isSpace(b[i])) i++;
       const ns = i;
-      while (i < to && b[i]!== EQ &&!isSpace(b[i]) && b[i]!== GT && b[i]!== SLASH) i++;
+      while (i < to && b[i] !== EQ && !isSpace(b[i]) && b[i] !== GT && b[i] !== SLASH) i++;
       const nameEnd = i;
       while (i < to && isSpace(b[i])) i++;
-      if (i >= to || b[i]!== EQ) { i++; continue; }
+      if (i >= to || b[i] !== EQ) { i++; continue; }
       i++;
       while (i < to && isSpace(b[i])) i++;
       const q = b[i];
-      if (q!== QUOT && q!== APOS) { i++; continue; }
+      if (q !== QUOT && q !== APOS) { i++; continue; }
       const vs = i + 1;
       let ve = vs;
-      while (ve < to && b[ve]!== q) ve++;
+      while (ve < to && b[ve] !== q) ve++;
       if (equalsAt(b, ns, nameEnd, name)) return [vs, ve];
       i = ve + 1;
     }
@@ -366,16 +367,16 @@ export class XmltvParser {
   }
 
   private sameAsLast(vs: number, ve: number): boolean {
-    if (ve - vs!== this.lastLen) return false;
+    if (ve - vs !== this.lastLen) return false;
     const b = this.buf;
-    for (let k = 0; k < this.lastLen; k++) if (b[vs + k]!== this.lastBytes[k]) return false;
+    for (let k = 0; k < this.lastLen; k++) if (b[vs + k] !== this.lastBytes[k]) return false;
     return true;
   }
 
   private prolog(s: string) {
     const m = /encoding\s*=\s*["']([^"']+)["']/.exec(s);
     if (!m) return;
-    const enc = m[1].toLowerCase;
+    const enc = m[1].toLowerCase();
     if (enc === this.enc) return;
     try {
       this.decoder = new TextDecoder(enc);
@@ -388,11 +389,11 @@ export class XmltvParser {
     let icon = '';
     CHILD_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
-    while ((m = CHILD_RE.exec(s))!== null) {
+    while ((m = CHILD_RE.exec(s)) !== null) {
       if (m[1] === 'display-name') {
-        const t = textOf(m[4] || '').trim;
+        const t = textOf(m[4] || '').trim();
         if (t && names.indexOf(t) < 0) names.push(t);
-      } else if (m[1] === 'icon' &&!icon) icon = attr(' ' + m[2], 'src');
+      } else if (m[1] === 'icon' && !icon) icon = attr(' ' + m[2], 'src');
     }
     return { id: id, names: names, icon: icon };
   }
@@ -400,17 +401,17 @@ export class XmltvParser {
   private programme(ch: string, startAttr: string, stopAttr: string, inner: string) {
     const start = parseTime(startAttr);
     if (start <= 0) return;
-    const stop = stopAttr? parseTime(stopAttr): 0;
+    const stop = stopAttr ? parseTime(stopAttr) : 0;
     const title = new Pick(this.langs), sub = new Pick(this.langs), desc = new Pick(this.langs), cat = new Pick(this.langs);
     let icon = '';
     if (inner) {
       CHILD_RE.lastIndex = 0;
       let m: RegExpExecArray | null;
-      while ((m = CHILD_RE.exec(inner))!== null) {
+      while ((m = CHILD_RE.exec(inner)) !== null) {
         const name = m[1];
         if (name === 'icon') { if (!icon) icon = attr(' ' + m[2], 'src'); continue; }
         const lang = attr(' ' + m[2], 'lang');
-        const text = m[4]!== undefined? textOf(m[4]): '';
+        const text = m[4] !== undefined ? textOf(m[4]) : '';
         if (name === 'title') title.offer(lang, text);
         else if (name === 'sub-title') sub.offer(lang, text);
         else if (name === 'desc') desc.offer(lang, text);
@@ -419,7 +420,7 @@ export class XmltvParser {
     }
     const pr: EpgProgramme = {
       channel: ch, start: start, stop: stop,
-      title: title.value.trim, subTitle: sub.value.trim, desc: desc.value.trim, category: cat.value.trim, icon: icon,
+      title: title.value.trim(), subTitle: sub.value.trim(), desc: desc.value.trim(), category: cat.value.trim(), icon: icon,
     };
     const prev = this.noStop[ch];
     if (prev) {

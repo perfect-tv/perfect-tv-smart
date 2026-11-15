@@ -1,6 +1,6 @@
 /**
  * Нормализация названий каналов: ключ канала для пользовательских данных, короткое имя
- * и транслит для сопоставления с EPG (§6).
+ * и транслит для сопоставления с EPG (docs/TZ.md, §6).
  */
 const KEY_RE = /[\s!-\/:-@\[-`\{-~]+/g;
 
@@ -13,7 +13,7 @@ const TR: { [c: string]: string } = {
 const R_ARCHIVE = /\s+\(архив\)$/;
 const R_PLUS = /\s+\((\+\d+)\)/g;
 const R_TELE = /^телеканал\s+/;
-const R_SIGNS = /([!\s.,–-]+|ⓢ|ⓖ|ⓥ|ⓞ|Ⓢ|Ⓖ|Ⓥ|Ⓞ)/g;
+const R_SIGNS = /([!\s.,()–-]+|ⓢ|ⓖ|ⓥ|ⓞ|Ⓢ|Ⓖ|Ⓥ|Ⓞ)/g;
 const R_KANAL = /\s(канал|тв)(\s.+|\s*)$/;
 const R_ORIG = /\s(50|orig|original)$/;
 const R_NUM = /\s(\d+)/g;
@@ -23,17 +23,24 @@ const DIGIT = /[0-9]/;
 
 export const Names = {
   /** Ключ канала для избранного, истории, скрытого и напоминаний */
-  key(name: string): string { return name.toLowerCase.replace(KEY_RE, ''); },
+  key(name: string): string { return name.toLowerCase().replace(KEY_RE, ''); },
 
   /** «Короткое имя» для сопоставления с EPG */
   short(name: string): string {
-    return name.toLowerCase.replace(R_ARCHIVE, '').replace(R_PLUS, ' $1').replace(R_TELE, '').replace(R_SIGNS, ' ').trim.replace(R_KANAL, '$2').replace(R_ORIG, '').replace(R_NUM, '$1');
+    return name.toLowerCase()
+      .replace(R_ARCHIVE, '')
+      .replace(R_PLUS, ' $1')
+      .replace(R_TELE, '')
+      .replace(R_SIGNS, ' ').trim()
+      .replace(R_KANAL, '$2')
+      .replace(R_ORIG, '')
+      .replace(R_NUM, '$1');
   },
 
   /** Похожие кириллические буквы → латиница/цифры («нтв» и «HTB» совпадут) */
   translit(s: string): string {
     let r = '';
-    for (let i = 0; i < s.length; i++) { const c = s.charAt(i); r += TR[c]!== undefined? TR[c]: c; }
+    for (let i = 0; i < s.length; i++) { const c = s.charAt(i); r += TR[c] !== undefined ? TR[c] : c; }
     return r;
   },
 
@@ -51,7 +58,7 @@ export const Names = {
     let i = 0;
     const n = name.length;
     while (i < n) {
-      while (i < n &&!LETTER.test(name.charAt(i))) i++;
+      while (i < n && !LETTER.test(name.charAt(i))) i++;
       const s = i;
       while (i < n && LETTER.test(name.charAt(i))) i++;
       if (i === s) break;
@@ -61,7 +68,7 @@ export const Names = {
       else sb += name.charAt(s);
     }
     if (words === 0) return '?';
-    if (words === 1) return (first.length <= 3? first: first.substring(0, 2)).toUpperCase;
-    return sb.toUpperCase;
+    if (words === 1) return (first.length <= 3 ? first : first.substring(0, 2)).toUpperCase();
+    return sb.toUpperCase();
   },
 };

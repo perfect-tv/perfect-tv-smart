@@ -1,5 +1,5 @@
 // Сборка в dist/: esbuild собирает бандл (синтаксис ES2017), tsc переводит его в ES5 —
-// webOS 3 (Chromium 38) не знает классов, стрелок, let/const, async (§2).
+// webOS 3 (Chromium 38) не знает классов, стрелок, let/const, async (docs/TZ.md, §2).
 // Запуск: node tools/build.mjs [--watch] [--dev]
 import * as esbuild from 'esbuild';
 import ts from 'typescript';
@@ -28,7 +28,7 @@ async function bundle(entry) {
     sourcemap: false,
     minify: false,
     legalComments: 'none',
-    define: { DEV: dev? 'true': 'false', APP_VERSION: JSON.stringify(JSON.parse(fs.readFileSync(path.join(root, 'appinfo.json'), 'utf8')).version) },
+    define: { DEV: dev ? 'true' : 'false', APP_VERSION: JSON.stringify(JSON.parse(fs.readFileSync(path.join(root, 'appinfo.json'), 'utf8')).version) },
     logLevel: 'warning',
   });
   const out = ts.transpileModule(res.outputFiles[0].text, {
@@ -37,7 +37,7 @@ async function bundle(entry) {
       module: ts.ModuleKind.None,
       downlevelIteration: true,
       allowJs: true,
-      removeComments:!dev,
+      removeComments: !dev,
       newLine: ts.NewLineKind.LineFeed,
     },
     fileName: 'app.js',
@@ -52,14 +52,14 @@ async function bundle(entry) {
     acorn.parse(js, { ecmaVersion: 5, sourceType: 'script' });
   } catch (e) {
     const lines = js.split('\n');
-    const ln = e.loc? e.loc.line: 0;
+    const ln = e.loc ? e.loc.line : 0;
     throw new Error(entry + ': бандл не ES5: ' + e.message + '\n' + (lines[ln - 1] || '').slice(0, 200));
   }
   return js;
 }
 
-async function build {
-  const t0 = Date.now;
+async function build() {
+  const t0 = Date.now();
   const app = await bundle('src/main.ts');
   // XMLTV + matching run inside the webOS Node service. CommonJS, ES5 only.
   const serviceCode = await esbuild.build({
@@ -69,7 +69,7 @@ async function build {
   });
   const serviceEs5 = ts.transpileModule(serviceCode.outputFiles[0].text, {
     compilerOptions: { target: ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS,
-      downlevelIteration: true, removeComments:!dev }, fileName: 'epg-parser.js',
+      downlevelIteration: true, removeComments: !dev }, fileName: 'epg-parser.js',
   }).outputText;
   acorn.parse(serviceEs5, { ecmaVersion: 5, sourceType: 'script' });
   fs.writeFileSync(path.join(root, 'service/epg-parser.js'), serviceEs5);
@@ -82,21 +82,21 @@ async function build {
   copy(path.join(root, 'appinfo.json'), path.join(dist, 'appinfo.json'));
   copy(path.join(root, 'LICENSE'), path.join(dist, 'LICENSE'));   // GPL 3.0: текст лицензии — вместе с приложением
   for (const f of fs.readdirSync(path.join(root, 'assets'))) copy(path.join(root, 'assets', f), path.join(dist, f));
-  console.log(`dist/app.js ${(app.length / 1024).toFixed(0)} KB, Node epg-parser.js ${(serviceEs5.length / 1024).toFixed(0)} KB, ${Date.now - t0} ms`);
+  console.log(`dist/app.js ${(app.length / 1024).toFixed(0)} KB, Node epg-parser.js ${(serviceEs5.length / 1024).toFixed(0)} KB, ${Date.now() - t0} ms`);
 }
 
 if (watch) {
   let busy = false, again = false;
-  const run = async  => {
+  const run = async () => {
     if (busy) { again = true; return; }
     busy = true;
-    try { await build; } catch (e) { console.error(e.message); }
+    try { await build(); } catch (e) { console.error(e.message); }
     busy = false;
-    if (again) { again = false; run; }
+    if (again) { again = false; run(); }
   };
-  await run;
+  await run();
   fs.watch(path.join(root, 'src'), { recursive: true }, run);
   fs.watch(path.join(root, 'strings'), { recursive: true }, run);
 } else {
-  await build;
+  await build();
 }

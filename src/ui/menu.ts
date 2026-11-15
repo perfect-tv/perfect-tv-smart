@@ -5,52 +5,52 @@ import { Logos } from './logos';
 import { Scroller } from './popups';
 import { U } from './u';
 
-export interface MenuTile { icon: string; title: string; run:  => void }
+export interface MenuTile { icon: string; title: string; run: () => void }
 export interface MenuItem {
   title: string;
   value?: string;
   /** Не закрывать меню (значение меняется на месте) */
   keep?: boolean;
   enabled?: boolean;
-  run?:  => void;
+  run?: () => void;
   /** Страница второго уровня */
-  sub?:  => MenuPage;
+  sub?: () => MenuPage;
 }
 export interface MenuSection { title: string; items: MenuItem[] }
 export interface MenuPage { title: string; subtitle?: string; channel?: Channel | null; tiles?: MenuTile[]; sections: MenuSection[] }
 
 /**
- * Меню канала — шторка справа («Меню канала»): до четырёх плиток, ниже —
+ * Меню канала — шторка справа (docs/design.md, «Меню канала»): до четырёх плиток, ниже —
  * группы пунктов. ↑/↓ — пункт (по кругу, через ряд плиток), ←/→ — в ряду плиток, → на «›» —
  * страница второго уровня, ← там — обратно. OK — выполнить (меню закрывается, кроме keep).
  */
 export class MenuLayer implements Layer {
   el: HTMLElement;
   private drawer: HTMLElement;
-  private stack: { page:  => MenuPage; index: number }[] = [];
+  private stack: { page: () => MenuPage; index: number }[] = [];
   private focusables: { el: HTMLElement; tile?: MenuTile; item?: MenuItem; tileRow?: boolean }[] = [];
   private index = 0;
   private tileIndex = 0;
   private scroller: Scroller | null = null;
 
-  constructor(parent: HTMLElement, page:  => MenuPage, private onClose:  => void) {
+  constructor(parent: HTMLElement, page: () => MenuPage, private onClose: () => void) {
     this.el = el('div', '', null, parent);
     this.el.id = 'menu-shade';
     this.drawer = el('div', 'drawer', null, this.el);
     this.drawer.style.width = Math.round(Math.min(U.px(35.6), U.w * 0.45)) + 'px';
     const self = this;
-    this.el.addEventListener('click', function (e) { if (e.target === self.el) self.onClose; });
+    this.el.addEventListener('click', function (e) { if (e.target === self.el) self.onClose(); });
     this.stack.push({ page: page, index: 0 });
-    this.render;
+    this.render();
     Anim.show(this.el);
   }
 
   /** Перестроить текущую страницу (значения поменялись) */
-  refresh { this.render; }
+  refresh() { this.render(); }
 
-  private render {
+  private render() {
     const top = this.stack[this.stack.length - 1];
-    const page = top.page;
+    const page = top.page();
     const d = this.drawer;
     while (d.firstChild) d.removeChild(d.firstChild);
     this.focusables = [];
@@ -77,7 +77,7 @@ export class MenuLayer implements Layer {
       }
     }
     // пункты — на всю оставшуюся высоту шторки (в крупных размерах интерфейса прокручиваются)
-    const used = body.getBoundingClientRect.top - d.getBoundingClientRect.top + body.offsetHeight;
+    const used = body.getBoundingClientRect().top - d.getBoundingClientRect().top + body.offsetHeight;
     this.scroller = new Scroller(body, Math.max(U.px(10), U.h - used - U.px(1.6)), 'rgba(30,31,32,.94)');
     const inner = this.scroller.inner;
     for (let s = 0; s < page.sections.length; s++) {
@@ -97,83 +97,83 @@ export class MenuLayer implements Layer {
     for (let i = 0; i < this.focusables.length; i++) {
       (function (k) {
         const f = self.focusables[k];
-        f.el.addEventListener('click', function  { self.index = k; self.focus; self.enter; });
-        f.el.addEventListener('mousemove', function  { if (self.index!== k) { self.index = k; self.focus; } });
+        f.el.addEventListener('click', function () { self.index = k; self.focus(); self.enter(); });
+        f.el.addEventListener('mousemove', function () { if (self.index !== k) { self.index = k; self.focus(); } });
       })(i);
     }
     this.index = Math.min(top.index, Math.max(0, this.focusables.length - 1));
     this.scroller.scrollTo(0);
-    this.focus;
+    this.focus();
   }
 
-  private focus {
+  private focus() {
     for (let i = 0; i < this.focusables.length; i++) toggle(this.focusables[i].el, 'f', i === this.index);
     this.stack[this.stack.length - 1].index = this.index;
     const f = this.focusables[this.index];
-    if (f &&!f.tileRow && this.scroller) {
+    if (f && !f.tileRow && this.scroller) {
       const e = f.el;
       this.scroller.reveal(e.offsetTop, e.offsetTop + e.offsetHeight, e.offsetHeight);
     }
   }
 
-  private tilesCount { let n = 0; for (let i = 0; i < this.focusables.length; i++) if (this.focusables[i].tileRow) n++; return n; }
+  private tilesCount() { let n = 0; for (let i = 0; i < this.focusables.length; i++) if (this.focusables[i].tileRow) n++; return n; }
 
   key(name: string) {
     const n = this.focusables.length;
     if (!n) return;
-    const tiles = this.tilesCount;
+    const tiles = this.tilesCount();
     const cur = this.focusables[this.index];
     if (name === 'up' || name === 'down') {
       // ряд плиток — одна позиция (−1) перед пунктами; по кругу
       const m = n - tiles;
-      const min = tiles > 0? -1: 0;
-      let pos = cur.tileRow? -1: this.index - tiles;
+      const min = tiles > 0 ? -1 : 0;
+      let pos = cur.tileRow ? -1 : this.index - tiles;
       if (cur.tileRow) this.tileIndex = this.index;
-      pos += name === 'up'? -1: 1;
+      pos += name === 'up' ? -1 : 1;
       if (pos >= m) pos = min;
       if (pos < min) pos = m - 1;
-      this.index = pos < 0? Math.min(this.tileIndex, tiles - 1): tiles + pos;
+      this.index = pos < 0 ? Math.min(this.tileIndex, tiles - 1) : tiles + pos;
     } else if (name === 'left') {
       if (cur.tileRow && this.index > 0) this.index--;
-      else if (!cur.tileRow && this.stack.length > 1) { this.pop; return; }
+      else if (!cur.tileRow && this.stack.length > 1) { this.pop(); return; }
       else return;
     } else if (name === 'right') {
       if (cur.tileRow && this.index < tiles - 1) this.index++;
       else if (cur.item && cur.item.sub) { this.push(cur.item.sub); return; }
       else return;
-    } else if (name === 'pgup') this.index = tiles < n? tiles: 0;
+    } else if (name === 'pgup') this.index = tiles < n ? tiles : 0;
     else if (name === 'pgdown') this.index = n - 1;
     else return;
-    this.focus;
+    this.focus();
   }
 
-  wheel(dy: number) { this.key(dy > 0? 'down': 'up'); }
+  wheel(dy: number) { this.key(dy > 0 ? 'down' : 'up'); }
 
-  private push(sub:  => MenuPage) {
+  private push(sub: () => MenuPage) {
     this.stack.push({ page: sub, index: 0 });
-    this.render;
+    this.render();
   }
 
-  private pop {
-    this.stack.pop;
-    this.render;
+  private pop() {
+    this.stack.pop();
+    this.render();
   }
 
-  enter {
+  enter() {
     const f = this.focusables[this.index];
     if (!f) return;
-    if (f.tile) { this.onClose; f.tile.run; return; }
+    if (f.tile) { this.onClose(); f.tile.run(); return; }
     const it = f.item!;
     if (it.enabled === false) return;
     if (it.sub) { this.push(it.sub); return; }
-    if (!it.keep) this.onClose;
-    if (it.run) it.run;
-    if (it.keep) this.render;
+    if (!it.keep) this.onClose();
+    if (it.run) it.run();
+    if (it.keep) this.render();
   }
 
-  back {
-    if (this.stack.length > 1) this.pop; else this.onClose;
+  back() {
+    if (this.stack.length > 1) this.pop(); else this.onClose();
   }
 
-  media(name: string) { if (name === 'menu' || name === 'red') this.onClose; }
+  media(name: string) { if (name === 'menu' || name === 'red') this.onClose(); }
 }

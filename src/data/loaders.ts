@@ -10,7 +10,7 @@ import { Unpacker } from './streams';
 import { EpgChannelRaw, EpgProgramme, XmltvParser } from './xmltv';
 
 /** Уступить интерфейсу между кусками */
-function yieldUi: Promise<void> { return new Promise(function (r) { setTimeout(r, 0); }); }
+function yieldUi(): Promise<void> { return new Promise(function (r) { setTimeout(r, 0); }); }
 
 export interface SourceMeta {
   url: string;
@@ -62,19 +62,19 @@ export const Loaders = {
     const unp = new Unpacker(function (b) { parser.push(dec.decode(b, { stream: true })); });
     let etag = '', lm = '';
     return Net.stream(p.url, {
-      etag: force? undefined: p.etag || undefined,
-      lastModified: force? undefined: p.lastModified || undefined,
-      onResponse: function (r) { etag = r.header('ETag'); lm = r.header('Last-Modified'); console.log('playlist', r.status, r.proxied? 'proxy': 'direct'); },
+      etag: force ? undefined : p.etag || undefined,
+      lastModified: force ? undefined : p.lastModified || undefined,
+      onResponse: function (r) { etag = r.header('ETag'); lm = r.header('Last-Modified'); console.log('playlist', r.status, r.proxied ? 'proxy' : 'direct'); },
       onProgress: function (read) { if (onProgress) onProgress(read, list.length); },
     }, function (chunk) {
       unp.push(chunk);
       if (parser.rejected) throw new NetError('format');
-      return list.length % 2000 < 50? yieldUi: undefined;
+      return list.length % 2000 < 50 ? yieldUi() : undefined;
     }).then(function (r) {
       if (r.status === 304) return { list: [], header: {}, notModified: true };
-      unp.end;
-      parser.push(dec.decode);
-      parser.end;
+      unp.end();
+      parser.push(dec.decode());
+      parser.end();
       if (!parser.isM3u) throw new NetError('format');
       if (!list.length) throw new NetError('empty');
       console.log('playlist parsed', list.length, 'channels');
@@ -88,17 +88,17 @@ export const Loaders = {
   headerEpg(header: { [k: string]: string }): string[] { return epgUrls(header); },
 
   /**
-   * Программа одного источника (§5) для всех плейлистов, где он указан.
+   * Программа одного источника (docs/TZ.md, §5) для всех плейлистов, где он указан.
    * Пачки по каналу пишутся в IndexedDB по ходу разбора; после успеха старые пачки удаляются.
    */
   loadEpg(url: string, wanted: WantedSet[], maxArchiveDays: number, langs: string[], force: boolean,
-    onProgress: (read: number, total: number, programmes: number) => void, onPack:  => void): Promise<SourceMeta> {
+    onProgress: (read: number, total: number, programmes: number) => void, onPack: () => void): Promise<SourceMeta> {
     let meta: SourceMeta;
-    const now = Clock.now;
+    const now = Clock.now();
     const lo = now - (maxArchiveDays + 1) * 86400;
     const hi = now + 8 * 86400;
-    const loadId = Date.now;
-    const matcher = new EpgMatcher;
+    const loadId = Date.now();
+    const matcher = new EpgMatcher();
     const icons: { [id: string]: string } = {};
     const epgChannels: any[] = [];
     let want: { [id: string]: true } = {};
@@ -111,7 +111,7 @@ export const Loaders = {
     let total = 0;
     let read = 0, size = 0;
 
-    function flushCur {
+    function flushCur() {
       if (!cur.length) return;
       const n = seq[curX] || 0;
       seq[curX] = n + 1;
@@ -120,7 +120,7 @@ export const Loaders = {
       cur = [];
     }
 
-    function rebuildWanted {
+    function rebuildWanted() {
       want = {};
       maps = [];
       for (let i = 0; i < wanted.length; i++) {
@@ -129,7 +129,7 @@ export const Loaders = {
         for (let j = 0; j < chs.length; j++) {
           const c = chs[j];
           const x = matcher.match(c.tvgId, c.tvgName, c.name);
-          if (x!== null) { m[c.key] = [x, icons[x] || '']; want[x] = true; }
+          if (x !== null) { m[c.key] = [x, icons[x] || '']; want[x] = true; }
         }
         maps.push({ pid: wanted[i].pid, s: url, m: m });
       }
@@ -145,25 +145,25 @@ export const Loaders = {
       function (id) { return want[id] === true; },
       function (pr: EpgProgramme) {
         if (pr.stop < lo || pr.start > hi) return;
-        if (pr.channel!== curX) { flushCur; curX = pr.channel; }
+        if (pr.channel !== curX) { flushCur(); curX = pr.channel; }
         cur.push([pr.start, pr.stop, pr.title, pr.subTitle, pr.desc, pr.category, pr.icon]);
         total++;
-        if (cur.length >= 2000) flushCur;
+        if (cur.length >= 2000) flushCur();
       });
     const unp = new Unpacker(function (b) { parser.push(b); });
 
     function writePending(final: boolean): Promise<void> {
-      if (final) flushCur;
+      if (final) flushCur();
       const tasks: Promise<void>[] = [];
       if (epgChannels.length) { tasks.push(Db.putAll('epgch', epgChannels.splice(0, epgChannels.length))); }
       if (packs.length && (final || pending >= 3000)) {
         tasks.push(Db.putAll('prog', packs.map(packProgramme)));
         packs = [];
         pending = 0;
-        tasks.push(Promise.all(maps.map(function (m) { return Db.put('map', m); })).then(function  { /* */ }));
+        tasks.push(Promise.all(maps.map(function (m) { return Db.put('map', m); })).then(function () { /* */ }));
       }
-      if (!tasks.length) return yieldUi;
-      return Promise.all(tasks).then(function  { onPack; return yieldUi; });
+      if (!tasks.length) return yieldUi();
+      return Promise.all(tasks).then(function () { onPack(); return yieldUi(); });
     }
 
     console.log('epg start', url);
@@ -172,8 +172,8 @@ export const Loaders = {
       meta.status = SRC_LOADING;
       let etag = '', lm = '';
       return Net.stream(url, {
-        etag: force ||!meta.etag || meta.status === SRC_ERROR? undefined: meta.etag,
-        lastModified: force ||!meta.lastModified? undefined: meta.lastModified,
+        etag: force || !meta.etag || meta.status === SRC_ERROR ? undefined : meta.etag,
+        lastModified: force || !meta.lastModified ? undefined : meta.lastModified,
         onResponse: function (r) { etag = r.header('ETag'); lm = r.header('Last-Modified'); },
         onProgress: function (r, t) { read = r; size = t; },
       }, function (chunk) {
@@ -182,21 +182,21 @@ export const Loaders = {
         return writePending(false);
       }).then(function (r) {
         if (r.status === 304) {
-          meta.loadedAt = Clock.now;
+          meta.loadedAt = Clock.now();
           meta.status = SRC_READY;
           meta.error = '';
-          return Db.put('sources', meta).then(function  { return Loaders.rematch(url, wanted); }).then(function  { return meta; });
+          return Db.put('sources', meta).then(function () { return Loaders.rematch(url, wanted); }).then(function () { return meta; });
         }
-        unp.end;
-        parser.end;
-        if (!maps.length) rebuildWanted;
-        return writePending(true).then(function  {
+        unp.end();
+        parser.end();
+        if (!maps.length) rebuildWanted();
+        return writePending(true).then(function () {
           // старые загрузки источника и всё, что вне окна хранения
-          return Db.deleteWhere('prog', prefixRange([url]), function (v) { return v.l!== loadId; });
-        }).then(function  {
+          return Db.deleteWhere('prog', prefixRange([url]), function (v) { return v.l !== loadId; });
+        }).then(function () {
           return Promise.all(maps.map(function (m) { return Db.put('map', m); }));
-        }).then(function  {
-          meta.loadedAt = Clock.now;
+        }).then(function () {
+          meta.loadedAt = Clock.now();
           meta.loadId = loadId;
           meta.etag = etag;
           meta.lastModified = lm;
@@ -205,7 +205,7 @@ export const Loaders = {
           meta.status = SRC_READY;
           console.log('epg done', url, total, 'programmes', parser.channels, 'channels');
           return Db.put('sources', meta);
-        }).then(function  { return meta; });
+        }).then(function () { return meta; });
       });
     }).then(null, function (e) {
       const code = errorCode(e);
@@ -214,17 +214,17 @@ export const Loaders = {
       meta.error = code;
       meta.status = SRC_ERROR;
       // данные этой загрузки остаются (часть программы лучше, чем ничего), старые не удаляются
-      return Db.put('sources', meta).then(function  { return meta; });
+      return Db.put('sources', meta).then(function () { return meta; });
     });
   },
 
   /** Пересопоставить каналы плейлистов с уже загруженным источником (плейлист перезагружен, 304) */
   rematch(url: string, wanted: WantedSet[]): Promise<void> {
-    return SocketDb.available.then(function (active) {
+    return SocketDb.available().then(function (active) {
       if (active) return SocketDb.epgRematch(url, wanted);
       return Db.all<any>('epgch', prefixRange([url])).then(function (list) {
       if (!list.length) return;
-      const matcher = new EpgMatcher;
+      const matcher = new EpgMatcher();
       const icons: { [id: string]: string } = {};
       for (let i = 0; i < list.length; i++) {
         matcher.addChannel({ id: list[i].id, names: list[i].names, icon: list[i].icon });
@@ -237,7 +237,7 @@ export const Loaders = {
         for (let j = 0; j < chs.length; j++) {
           const c = chs[j];
           const x = matcher.match(c.tvgId, c.tvgName, c.name);
-          if (x!== null) m[c.key] = [x, icons[x] || ''];
+          if (x !== null) m[c.key] = [x, icons[x] || ''];
         }
         recs.push({ pid: wanted[i].pid, s: url, m: m });
       }

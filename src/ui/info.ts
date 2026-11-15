@@ -28,11 +28,11 @@ const SLOT = 1800;
 
 function hhmmss(sec: number): string {
   const s = Math.floor(sec) % 60;
-  return Fmt.hhmm(sec) + ':' + (s < 10? '0' + s: s);
+  return Fmt.hhmm(sec) + ':' + (s < 10 ? '0' + s : s);
 }
 
 /**
- * Инфопанель («Инфопанель»): затемнение во всю ширину, логотип, канал и бейджи,
+ * Инфопанель (docs/design.md, «Инфопанель»): затемнение во всю ширину, логотип, канал и бейджи,
  * передача, шкала с буфером и «ещё N мин» (в архиве — время кадра), «Далее» — две передачи
  * (при перемотке — пузырь), часы; ↓ — закрепить (подсказки), ↓↓ — описание и «Далее на канале».
  */
@@ -41,7 +41,7 @@ export class InfoPanel {
   visible = false;
   sticky = false;
   more = false;
-  onHide: ( => void) | null = null;
+  onHide: (() => void) | null = null;
 
   private channel: Channel | null = null;
   private logo: HTMLElement;
@@ -109,11 +109,11 @@ export class InfoPanel {
     this.desc = el('div', 'desc', null, mid);
     this.upnext = el('div', 'upnext', null, mrow);
     this.hints = el('div', 'hints', null, root);
-    this.layout;
+    this.layout();
   }
 
   /** Колонки «О передаче» — долями ширины: картинка 25% (16:9), «Далее на канале» 27% */
-  layout {
+  layout() {
     const cw = U.w - 2 * U.px(4);
     this.banner.style.width = Math.round(cw * 0.25) + 'px';
     this.banner.style.height = Math.round(cw * 0.25 * 9 / 16) + 'px';
@@ -122,33 +122,33 @@ export class InfoPanel {
 
   update(m: InfoModel) {
     const ch = m.channel;
-    if (this.channel!== ch) {
+    if (this.channel !== ch) {
       this.channel = ch;
       Logos.fill(this.logo, ch);
     }
-    setText(this.chName, ch.title);
-    setText(this.clock, Fmt.hhmm(Clock.now));
+    setText(this.chName, ch.title());
+    setText(this.clock, Fmt.hhmm(Clock.now()));
     this.setBadges(m);
     const p = m.program;
-    const ref = m.seek!== null? m.seek: m.position;
-    setText(this.title, p? p.title: (m.archive || m.seek!== null? str('archive') + Fmt.hhmm(ref): str('no_programme')));
-    const from = p? p.start: ref - ref % SLOT;
-    const to = p? p.stop: from + SLOT;
+    const ref = m.seek !== null ? m.seek : m.position;
+    setText(this.title, p ? p.title : (m.archive || m.seek !== null ? str('archive') + Fmt.hhmm(ref) : str('no_programme')));
+    const from = p ? p.start : ref - ref % SLOT;
+    const to = p ? p.stop : from + SLOT;
     setText(this.tStart, Fmt.hhmm(from));
     setText(this.tEnd, Fmt.hhmm(to));
     const f = function (x: number) { return Fmt.progress(from, to, x); };
     const v = f(m.position);
-    const b = m.ahead > 0? Math.max(f(m.position + m.ahead), v + 0.01): v;
-    this.drawBar(v, b, m.seek!== null? f(m.seek): -1, m.archive);
+    const b = m.ahead > 0 ? Math.max(f(m.position + m.ahead), v + 0.01) : v;
+    this.drawBar(v, b, m.seek !== null ? f(m.seek) : -1, m.archive);
     let rem = '';
     if (m.seek === null) {
       if (m.archive) rem = hhmmss(m.position);
       else if (p) rem = this.remainText(p.stop - m.position);
     }
     setText(this.remain, rem);
-    if (m.seek!== null) {
-      const diff = m.seek - Clock.now;
-      setText(this.seekB, hhmmss(m.seek) + '   ' + (diff < 0? '−': '+') + Fmt.duration(Math.abs(diff)));
+    if (m.seek !== null) {
+      const diff = m.seek - Clock.now();
+      setText(this.seekB, hhmmss(m.seek) + '   ' + (diff < 0 ? '−' : '+') + Fmt.duration(Math.abs(diff)));
       this.next.style.visibility = 'hidden';
       this.seekB.style.visibility = 'visible';
       this.placeSeek(f(m.seek));
@@ -159,7 +159,7 @@ export class InfoPanel {
     }
     this.hintArchive = m.archive;
     this.hintPaused = m.paused;
-    this.updateHints;
+    this.updateHints();
   }
 
   private remainText(sec: number): string {
@@ -167,18 +167,18 @@ export class InfoPanel {
     const min = Math.floor((sec + 59) / 60);
     if (min < 60) return str('x_min_left', min);
     const mm = min % 60;
-    return str('x_h_x_min_left', Math.floor(min / 60), mm < 10? '0' + mm: String(mm));
+    return str('x_h_x_min_left', Math.floor(min / 60), mm < 10 ? '0' + mm : String(mm));
   }
 
   private nextKey = '';
   private setNext(m: InfoModel) {
     const n = m.next;
-    const k = n? n.start + n.title + (m.next2? m.next2.start + m.next2.title: ''): '';
+    const k = n ? n.start + n.title + (m.next2 ? m.next2.start + m.next2.title : '') : '';
     if (k === this.nextKey && this.next.firstChild) return;
     this.nextKey = k;
     while (this.next.firstChild) this.next.removeChild(this.next.firstChild);
     el('span', 'lbl', str('next'), this.next);
-    let s = n? Fmt.hhmm(n.start) + ' ' + n.title: str('no_programme_2');
+    let s = n ? Fmt.hhmm(n.start) + ' ' + n.title : str('no_programme_2');
     if (n && m.next2) s += '   ·   ' + Fmt.hhmm(m.next2.start) + ' ' + m.next2.title;
     this.next.appendChild(document.createTextNode(s));
   }
@@ -201,8 +201,8 @@ export class InfoPanel {
     if (st.v === v && st.b === b && st.s === s && st.arch === arch && this.bar.width === W && this.bar.height === H) return;
     st.v = v; st.b = b; st.s = s; st.arch = arch;
     if (W <= 0 || H <= 0) return;
-    if (this.bar.width!== W) this.bar.width = W;
-    if (this.bar.height!== H) this.bar.height = H;
+    if (this.bar.width !== W) this.bar.width = W;
+    if (this.bar.height !== H) this.bar.height = H;
     const c = this.bar.getContext('2d')!;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, cw, ch);
@@ -210,8 +210,8 @@ export class InfoPanel {
     const top = (ch - t) / 2, bottom = top + t, r = t / 2;
     roundRect(c, 0, top, cw, bottom, r, C.FILL_MARKED);
     roundRect(c, 0, top, cw * b, bottom, r, C.t(0.35));
-    const on = arch? C.ARCHIVE: C.WHITE;
-    c.globalAlpha = s >= 0? 0.6: 1;
+    const on = arch ? C.ARCHIVE : C.WHITE;
+    c.globalAlpha = s >= 0 ? 0.6 : 1;
     roundRect(c, 0, top, cw * v, bottom, r, on);
     c.globalAlpha = 1;
     if (s >= 0) {
@@ -227,10 +227,10 @@ export class InfoPanel {
     if (m.error) parts.push('live|' + str('error'));
     if (m.paused) parts.push('pause|');
     if (m.archive) {
-      const lag = Clock.now - m.position;
-      parts.push('arch|' + str('archive_2') + (lag > 0? ' · −' + Fmt.duration(lag): ''));
+      const lag = Clock.now() - m.position;
+      parts.push('arch|' + str('archive_2') + (lag > 0 ? ' · −' + Fmt.duration(lag) : ''));
     } else parts.push('live|' + str('live'));
-    if (m.height > 0) parts.push('|' + (m.height >= 2000? '4K': m.height >= 1000? 'FHD': m.height >= 700? 'HD': 'SD'));
+    if (m.height > 0) parts.push('|' + (m.height >= 2000 ? '4K' : m.height >= 1000 ? 'FHD' : m.height >= 700 ? 'HD' : 'SD'));
     if (m.engine) parts.push('|' + m.engine);
     if (m.channel.hasArchive) parts.push('hist|' + str('x_d', m.channel.archiveDays));
     const key = parts.join('#');
@@ -241,7 +241,7 @@ export class InfoPanel {
     for (let i = 0; i < parts.length; i++) {
       const k = parts[i].substring(0, parts[i].indexOf('|'));
       const text = parts[i].substring(parts[i].indexOf('|') + 1);
-      const b = el('span', 'bdg' + (k === 'live'? ' live': k === 'arch'? ' arch': k === 'pause'? ' pause': ''), null, box);
+      const b = el('span', 'bdg' + (k === 'live' ? ' live' : k === 'arch' ? ' arch' : k === 'pause' ? ' pause' : ''), null, box);
       if (k === 'pause') { el('i', '', null, b); el('i', '', null, b); continue; }
       if (k === 'hist') b.appendChild(icon('archive'));
       b.appendChild(document.createTextNode(text));
@@ -250,7 +250,7 @@ export class InfoPanel {
 
   // ------------------------------------------------------------ подсказки
 
-  private updateHints {
+  private updateHints() {
     const show = this.visible && this.sticky && Prefs.keyHints;
     visible(this.hints, show);
     if (!show) return;
@@ -258,10 +258,10 @@ export class InfoPanel {
     if (key === this.hintKey && this.hints.firstChild) return;
     this.hintKey = key;
     const h: [string, string][] = [];
-    h.push(['OK', str(this.hintPaused? 'hint_resume': 'hint_pause')]);
+    h.push(['OK', str(this.hintPaused ? 'hint_resume' : 'hint_pause')]);
     if (this.more) h.push(['↑', str('hint_collapse')]);
     else { h.push(['↓', str('about')]); h.push(['↑', str('close')]); }
-    h.push(['←  →', str(this.hintArchive? 'hint_seek': 'hint_channel')]);
+    h.push(['←  →', str(this.hintArchive ? 'hint_seek' : 'hint_channel')]);
     h.push([str('key_hold_ok'), str('menu')]);
     hintRow(this.hints, h);
   }
@@ -276,17 +276,17 @@ export class InfoPanel {
     setText(this.desc, text);
     visible(this.desc, text.length > 0);
     const self = this;
-    const logoBanner = function  {
+    const logoBanner = function () {
       self.bannerUrl = '';
       while (self.banner.firstChild) self.banner.removeChild(self.banner.firstChild);
       if (ch) self.banner.appendChild(Logos.el(ch, '', false));
     };
     if (image) {
-      if (this.bannerUrl!== image) {
+      if (this.bannerUrl !== image) {
         this.bannerUrl = image;
-        Logos.banner(this.banner, image, function  { if (self.bannerUrl === image) logoBanner; });
+        Logos.banner(this.banner, image, function () { if (self.bannerUrl === image) logoBanner(); });
       }
-    } else logoBanner;
+    } else logoBanner();
     const up = this.upnext;
     while (up.firstChild) up.removeChild(up.firstChild);
     el('div', 'h', str('next_on_the_channel'), up);
@@ -296,21 +296,21 @@ export class InfoPanel {
       r.appendChild(document.createTextNode(upcoming[i].title));
     }
     visible(up, upcoming.length > 0);
-    this.updateHints;
+    this.updateHints();
     this.animateMore(true);
   }
 
-  collapse {
+  collapse() {
     if (!this.more) return;
     this.more = false;
-    this.updateHints;
+    this.updateHints();
     this.animateMore(false);
   }
 
   private animateMore(show: boolean) {
     const b = this.moreBox;
-    const shown = b.style.display!== 'none';
-    if (!Anim.on ||!this.visible) {
+    const shown = b.style.display !== 'none';
+    if (!Anim.on || !this.visible) {
       b.style.transition = 'none';
       b.style.height = '';
       b.style.opacity = '1';
@@ -318,20 +318,20 @@ export class InfoPanel {
       return;
     }
     if (show === shown && b.style.height === '') return;
-    const from = shown? b.offsetHeight: 0;
+    const from = shown ? b.offsetHeight : 0;
     b.style.transition = 'none';
     b.style.display = '';
     b.style.height = '';
-    const to = show? b.scrollHeight: 0;
+    const to = show ? b.scrollHeight : 0;
     b.style.height = from + 'px';
-    b.style.opacity = shown? '1': '0';
+    b.style.opacity = shown ? '1' : '0';
     void b.offsetHeight;
     b.style.transition = 'height 250ms ease-out, opacity 200ms';
     b.style.height = to + 'px';
-    b.style.opacity = show? '1': '0';
+    b.style.opacity = show ? '1' : '0';
     const self = this;
-    setTimeout(function  {
-      if (self.more!== show) return;
+    setTimeout(function () {
+      if (self.more !== show) return;
       b.style.transition = 'none';
       b.style.height = '';
       if (!show) b.style.display = 'none';
@@ -340,7 +340,7 @@ export class InfoPanel {
 
   /** timeout 0 — закрепить; закреплённую повторный show с таймаутом не открепляет */
   show(timeout: number) {
-    if (this.visible && this.sticky && timeout!== 0) return;
+    if (this.visible && this.sticky && timeout !== 0) return;
     this.sticky = timeout === 0;
     if (!this.visible) {
       this.visible = true;
@@ -348,19 +348,19 @@ export class InfoPanel {
     }
     clearTimeout(this.hideTimer);
     const self = this;
-    if (timeout!== 0) this.hideTimer = window.setTimeout(function  { self.hide; }, timeout * 1000);
-    this.updateHints;
+    if (timeout !== 0) this.hideTimer = window.setTimeout(function () { self.hide(); }, timeout * 1000);
+    this.updateHints();
   }
 
-  hide {
+  hide() {
     clearTimeout(this.hideTimer);
     if (!this.visible) return;
-    if (this.onHide) this.onHide;
+    if (this.onHide) this.onHide();
     this.visible = false;
     this.sticky = false;
-    this.collapse;
+    this.collapse();
     Anim.hide(this.el);
   }
 
-  relabel { this.badgesKey = ''; this.hintKey = ''; this.nextKey = ''; }
+  relabel() { this.badgesKey = ''; this.hintKey = ''; this.nextKey = ''; }
 }

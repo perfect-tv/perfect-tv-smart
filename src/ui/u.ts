@@ -1,7 +1,7 @@
 import { Prefs } from '../core/prefs';
 
 /**
- * Палитра, масштаб и рисование на Canvas.
+ * Палитра, масштаб и рисование на Canvas (docs/design.md).
  * 1 em = высота экрана / 48 (настройка «Размер интерфейса»: 54 / 48 / 43,2) — то же, что 10 dp
  * в Android-версии. В CSS это 1rem (размер шрифта корня ставит U.init).
  * «Белый» — #EBEBEB, а не чистый: на телевизоре чистый белый режет глаза.
@@ -52,7 +52,7 @@ export const U = {
   h: 1080,
   dpr: 1,
 
-  init {
+  init() {
     const w = window.innerWidth || 1920;
     const h = window.innerHeight || 1080;
     // экран не 16:9 (окно браузера) — считаем от вписанного 16:9
@@ -66,11 +66,11 @@ export const U = {
 
   px(e: number): number { return e * U.em; },
   /** Ширина экрана в em */
-  get wEm { return U.w / U.em; },
-  get hEm { return U.h / U.em; },
+  get wEm() { return U.w / U.em; },
+  get hEm() { return U.h / U.em; },
 
   font(sizeEm: number, bold?: boolean | number): string {
-    const wgt = bold === true? 700: typeof bold === 'number'? bold: 400;
+    const wgt = bold === true ? 700 : typeof bold === 'number' ? bold : 400;
     return wgt + ' ' + (sizeEm * U.em).toFixed(2) + 'px ' + FONT;
   },
 };
@@ -81,7 +81,7 @@ export function roundRect(c: CanvasRenderingContext2D, l: number, t: number, r: 
   rad = Math.min(rad, w / 2, h / 2);
   if ((c as any).isDom) { (c as any).roundRect(l, t, r, b, rad, color); return; }   // HTML-гид
   c.fillStyle = color;
-  c.beginPath;
+  c.beginPath();
   c.moveTo(l + rad, t);
   c.lineTo(r - rad, t);
   c.arcTo(r, t, r, t + rad, rad);
@@ -91,8 +91,8 @@ export function roundRect(c: CanvasRenderingContext2D, l: number, t: number, r: 
   c.arcTo(l, b, l, b - rad, rad);
   c.lineTo(l, t + rad);
   c.arcTo(l, t, l + rad, t, rad);
-  c.closePath;
-  c.fill;
+  c.closePath();
+  c.fill();
 }
 
 export function strokeRoundRect(c: CanvasRenderingContext2D, l: number, t: number, r: number, b: number, rad: number, color: string, width: number) {
@@ -102,7 +102,7 @@ export function strokeRoundRect(c: CanvasRenderingContext2D, l: number, t: numbe
   if ((c as any).isDom) { (c as any).strokeRoundRect(l, t, r, b, rad, color, width); return; }   // HTML-гид
   c.strokeStyle = color;
   c.lineWidth = width;
-  c.beginPath;
+  c.beginPath();
   c.moveTo(l + rad, t);
   c.lineTo(r - rad, t);
   c.arcTo(r, t, r, t + rad, rad);
@@ -112,8 +112,8 @@ export function strokeRoundRect(c: CanvasRenderingContext2D, l: number, t: numbe
   c.arcTo(l, b, l, b - rad, rad);
   c.lineTo(l, t + rad);
   c.arcTo(l, t, l + rad, t, rad);
-  c.closePath;
-  c.stroke;
+  c.closePath();
+  c.stroke();
 }
 
 const ellCache: { [k: string]: string } = {};
@@ -121,7 +121,7 @@ let ellCount = 0;
 
 /** Текст в одну строку с вертикальным центром cy, обрезка многоточием (результат кэшируется) */
 export function drawText(c: CanvasRenderingContext2D, s: string, x: number, cy: number, width: number) {
-  if (width <= 0 ||!s) return;
+  if (width <= 0 || !s) return;
   c.textBaseline = 'middle';
   let t = s;
   if (c.measureText(s).width > width) {

@@ -7,7 +7,7 @@ export const MIN = 4;
 export const MAX = 6;
 
 /**
- * Окно PIN («Окно PIN»). Видны только набранные точки (длина не видна).
+ * Окно PIN (docs/controls.md, «Окно PIN»). Видны только набранные точки (длина не видна).
  *   RING (как Fire TV): ↑ → ↓ ← = 1 2 3 4, OK = 0; «Меню» / красная / удерж. OK — раскладка 5–9.
  *   ROWS (как Google): ряд 1-2-3: ← = 1, OK = 2, → = 3; ↑/↓ — другой ряд (с 1-2-3 вверх — 7-8-9);
  *        на ряду 7-8-9 ↓ = 0.
@@ -32,10 +32,10 @@ export class PinLayer extends PopupLayer {
   private padViews: HTMLElement[] = [];
   private static PAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'done'];
 
-  constructor(parent: HTMLElement, private create: boolean, title: string, private onDone: (pin: string) => void, private onCancel:  => void) {
+  constructor(parent: HTMLElement, private create: boolean, title: string, private onDone: (pin: string) => void, private onCancel: () => void) {
     super(parent, 40);
     toggle(this.win, 'pin', true);
-    this.style = create? 2: Prefs.pinInput;
+    this.style = create ? 2 : Prefs.pinInput;
     this.head(null, title);
     this.hint = el('div', 't75', '', this.win);
     this.hint.style.cssText = 'font-size:1.35rem;text-align:center';
@@ -44,24 +44,24 @@ export class PinLayer extends PopupLayer {
     this.stage = el('div', '', null, this.win);
     this.help = el('div', 'hint2', '', this.win);
     this.help.style.whiteSpace = 'pre-line';
-    setText(this.hint, create? str('create_a_pin_of_4_6_digits'): str('enter_pin'));
+    setText(this.hint, create ? str('create_a_pin_of_4_6_digits') : str('enter_pin'));
     if (create) setText(this.help, str('done_when_entered_back_delete'));
     else if (this.style === 1) setText(this.help, str('up_down_another_row_on_7_8_9_down_0'));
-    this.build;
-    this.render;
-    this.center;
+    this.build();
+    this.render();
+    this.center();
   }
 
-  private build {
+  private build() {
     const s = this.stage;
     const self = this;
     if (this.style === 2) {
       const kb = el('div', 'kb', null, s);
       for (let i = 0; i < PinLayer.PAD.length; i++) {
         const k = PinLayer.PAD[i];
-        const b = el('b', '', k === 'del'? '⌫': k === 'done'? str('done'): k, kb);
+        const b = el('b', '', k === 'del' ? '⌫' : k === 'done' ? str('done') : k, kb);
         if (k === 'done') b.style.fontSize = '1.3rem';
-        (function (n) { b.addEventListener('click', function  { self.padIndex = n; self.press(PinLayer.PAD[n]); self.render; }); })(i);
+        (function (n) { b.addEventListener('click', function () { self.padIndex = n; self.press(PinLayer.PAD[n]); self.render(); }); })(i);
         this.padViews.push(b);
       }
     } else if (this.style === 0) {
@@ -76,7 +76,7 @@ export class PinLayer extends PopupLayer {
     }
   }
 
-  private render {
+  private render() {
     const d = this.dots;
     while (d.firstChild) d.removeChild(d.firstChild);
     for (let i = 0; i < this.buf.length; i++) el('i', '', null, d);
@@ -85,15 +85,15 @@ export class PinLayer extends PopupLayer {
     } else if (this.style === 0) {
       const ring = this.stage.firstChild as HTMLElement;
       while (ring.firstChild) ring.removeChild(ring.firstChild);
-      const base = this.high? 5: 1;
+      const base = this.high ? 5 : 1;
       const pos: [number, number][] = [[50, 18], [82, 50], [50, 82], [18, 50]];
       for (let i = 0; i < 4; i++) {
         const b = el('b', '', String(base + i), ring);
         b.style.left = pos[i][0] + '%';
         b.style.top = pos[i][1] + '%';
       }
-      el('b', 'c', this.high? '9': '0', ring);
-      setText(this.help, str('pin_ring_help', this.high? '0–4': '5–9'));
+      el('b', 'c', this.high ? '9' : '0', ring);
+      setText(this.help, str('pin_ring_help', this.high ? '0–4' : '5–9'));
     } else {
       const pad = (this.stage.firstChild as HTMLElement).firstChild as HTMLElement;
       while (pad.firstChild) pad.removeChild(pad.firstChild);
@@ -117,28 +117,28 @@ export class PinLayer extends PopupLayer {
     setText(this.err, '');
     if (this.buf.length >= MAX) return;
     this.buf += d;
-    setText(this.hint, this.create? (this.first === null? str('create_a_pin_of_4_6_digits'): str('repeat_the_pin')): str('enter_pin'));
+    setText(this.hint, this.create ? (this.first === null ? str('create_a_pin_of_4_6_digits') : str('repeat_the_pin')) : str('enter_pin'));
     if (!this.create) {
       if (this.buf === Prefs.pin) { this.onDone(this.buf); return; }
       if (this.buf.length >= MAX) { this.fail(str('wrong_pin')); return; }
     }
-    this.render;
+    this.render();
   }
 
   private fail(text: string) {
     this.buf = '';
     setText(this.err, text);
-    this.render;
+    this.render();
   }
 
-  private confirm {
+  private confirm() {
     if (this.buf.length < MIN) { this.fail(str('x_to_x_digits_required', MIN, MAX)); return; }
     if (this.first === null) {
       this.first = this.buf;
       this.buf = '';
       setText(this.hint, str('repeat_the_pin'));
       setText(this.err, '');
-      this.render;
+      this.render();
       return;
     }
     if (this.first === this.buf) { this.onDone(this.buf); return; }
@@ -148,9 +148,9 @@ export class PinLayer extends PopupLayer {
   }
 
   private press(k: string) {
-    if (k === 'del') { this.buf = this.buf.substring(0, this.buf.length - 1); this.render; return; }
+    if (k === 'del') { this.buf = this.buf.substring(0, this.buf.length - 1); this.render(); return; }
     if (k === 'done') {
-      if (this.create) this.confirm;
+      if (this.create) this.confirm();
       else if (this.buf) this.fail(str('wrong_pin'));
       return;
     }
@@ -161,15 +161,15 @@ export class PinLayer extends PopupLayer {
     if (name === 'digit') { this.digit(d); return; }
     if (this.style === 2) {
       const i = this.padIndex;
-      if (name === 'left') this.padIndex = i % 3 === 0? i + 2: i - 1;
-      else if (name === 'right') this.padIndex = i % 3 === 2? i - 2: i + 1;
+      if (name === 'left') this.padIndex = i % 3 === 0 ? i + 2 : i - 1;
+      else if (name === 'right') this.padIndex = i % 3 === 2 ? i - 2 : i + 1;
       else if (name === 'up') this.padIndex = (i + 9) % 12;
       else if (name === 'down') this.padIndex = (i + 3) % 12;
-      this.render;
+      this.render();
       return;
     }
     if (this.style === 0) {
-      const base = this.high? 5: 1;
+      const base = this.high ? 5 : 1;
       if (name === 'up') this.digit(base);
       else if (name === 'right') this.digit(base + 1);
       else if (name === 'down') this.digit(base + 2);
@@ -179,26 +179,26 @@ export class PinLayer extends PopupLayer {
     // ряды
     if (name === 'left') this.digit(this.row * 3 + 1);
     else if (name === 'right') this.digit(this.row * 3 + 3);
-    else if (name === 'up') { this.row = (this.row + 2) % 3; this.render; }
-    else if (name === 'down') { if (this.row === 2) this.digit(0); else { this.row++; this.render; } }
+    else if (name === 'up') { this.row = (this.row + 2) % 3; this.render(); }
+    else if (name === 'down') { if (this.row === 2) this.digit(0); else { this.row++; this.render(); } }
   }
 
-  enter {
-    if (this.style === 2) { this.press(PinLayer.PAD[this.padIndex]); this.render; return; }
-    if (this.style === 0) { this.digit(this.high? 9: 0); return; }
+  enter() {
+    if (this.style === 2) { this.press(PinLayer.PAD[this.padIndex]); this.render(); return; }
+    if (this.style === 0) { this.digit(this.high ? 9 : 0); return; }
     this.digit(this.row * 3 + 2);
   }
 
-  long {
-    if (this.style === 0) { this.high =!this.high; this.render; }
+  long() {
+    if (this.style === 0) { this.high = !this.high; this.render(); }
   }
 
   media(name: string) {
-    if ((name === 'menu' || name === 'red') && this.style === 0) { this.high =!this.high; this.render; }
+    if ((name === 'menu' || name === 'red') && this.style === 0) { this.high = !this.high; this.render(); }
   }
 
-  back {
-    if (this.buf) { this.buf = this.buf.substring(0, this.buf.length - 1); setText(this.err, ''); this.render; return; }
-    this.onCancel;
+  back() {
+    if (this.buf) { this.buf = this.buf.substring(0, this.buf.length - 1); setText(this.err, ''); this.render(); return; }
+    this.onCancel();
   }
 }

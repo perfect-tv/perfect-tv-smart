@@ -1,5 +1,5 @@
 /**
- * Потоковый разбор M3U/M3U8 (§4): куски текста подаются в push, строки
+ * Потоковый разбор M3U/M3U8 (docs/TZ.md, §4): куски текста подаются в push(), строки
  * разбираются по мере поступления, каналы отдаются по одному. Весь файл в памяти не держится.
  */
 export interface Catchup { type: string; source: string; days: number }
@@ -31,14 +31,14 @@ export function parseAttrs(s: string): { [k: string]: string } {
   const out: { [k: string]: string } = {};
   ATTR_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = ATTR_RE.exec(s))!== null) {
-    const quoted =!!m[3];
-    out[m[1].toLowerCase] = quoted? m[4]: m[2];
+  while ((m = ATTR_RE.exec(s)) !== null) {
+    const quoted = !!m[3];
+    out[m[1].toLowerCase()] = quoted ? m[4] : m[2];
   }
   return out;
 }
 
-/** «-1 attr="..."...,Название»: название — после первой запятой вне кавычек значений */
+/** «-1 attr="..." ...,Название»: название — после первой запятой вне кавычек значений */
 export function parseExtinf(rest: string): Pending | null {
   const d = DURATION_RE.exec(rest);
   if (!d) return null;
@@ -48,12 +48,12 @@ export function parseExtinf(rest: string): Pending | null {
     const c = s.charAt(i);
     if (quote) { if (c === quote) quote = ''; }
     else if ((c === '"' || c === "'") && i > 0 && s.charAt(i - 1) === '=') quote = c;
-    else if (c === ',') return { name: s.substring(i + 1).trim, attrs: parseAttrs(s.substring(0, i)), options: {}, headersJson: null };
+    else if (c === ',') return { name: s.substring(i + 1).trim(), attrs: parseAttrs(s.substring(0, i)), options: {}, headersJson: null };
   }
   return null;
 }
 
-export function cleanName(name: string): string { return name.replace(BADGES_RE, ' ').trim; }
+export function cleanName(name: string): string { return name.replace(BADGES_RE, ' ').trim(); }
 
 /** URL программы из заголовка: в url-tvg бывает несколько адресов через запятую или пробел */
 export function epgUrls(header: { [k: string]: string }): string[] {
@@ -64,7 +64,7 @@ export function epgUrls(header: { [k: string]: string }): string[] {
     if (!v) continue;
     const parts = v.split(/[, ]/);
     for (let j = 0; j < parts.length; j++) {
-      const u = parts[j].trim;
+      const u = parts[j].trim();
       if (/^https?:\/\//i.test(u) && out.indexOf(u) < 0) out.push(u);
     }
   }
@@ -74,11 +74,11 @@ export function epgUrls(header: { [k: string]: string }): string[] {
 function num(v: string | undefined): number | null {
   if (v === undefined) return null;
   const n = parseFloat(v);
-  return isFinite(n)? n: null;
+  return isFinite(n) ? n : null;
 }
 
 function first(...vals: (string | undefined)[]): string | undefined {
-  for (let i = 0; i < vals.length; i++) if (vals[i]!== undefined) return vals[i];
+  for (let i = 0; i < vals.length; i++) if (vals[i] !== undefined) return vals[i];
   return undefined;
 }
 
@@ -114,7 +114,7 @@ export class M3uParser {
   }
 
   /** Конец потока */
-  end {
+  end() {
     if (this.rest) { this.line(this.rest); this.rest = ''; }
   }
 
@@ -123,25 +123,25 @@ export class M3uParser {
     if (line.length && line.charAt(line.length - 1) === '\r') line = line.substring(0, line.length - 1);
     if (this.firstLine) {
       if (line.charCodeAt(0) === 0xfeff) line = line.substring(1);
-      if (!line.trim) return;
+      if (!line.trim()) return;
       this.firstLine = false;
-      const t = line.trim;
-      if (t.substring(0, 7).toUpperCase!== '#EXTM3U') { this.rejected = true; return; }
+      const t = line.trim();
+      if (t.substring(0, 7).toUpperCase() !== '#EXTM3U') { this.rejected = true; return; }
       this.isM3u = true;
       this.header = parseAttrs(t.substring(7));
       return;
     }
-    line = line.trim;
+    line = line.trim();
     if (!line) return;
     if (line.charAt(0) === '#') {
-      const up = line.substring(0, 11).toUpperCase;
+      const up = line.substring(0, 11).toUpperCase();
       if (up.indexOf('#EXTINF:') === 0) this.pending = parseExtinf(line.substring(8));
-      else if (up.indexOf('#EXTGRP:') === 0) { const g = line.substring(8).trim; if (g) this.group = g; }
+      else if (up.indexOf('#EXTGRP:') === 0) { const g = line.substring(8).trim(); if (g) this.group = g; }
       else if (up.indexOf('#EXTVLCOPT:') === 0) {
         const opt = line.substring(11);
         const eq = opt.indexOf('=');
-        if (eq > 0 && this.pending) this.pending.options[opt.substring(0, eq).trim.toLowerCase] = opt.substring(eq + 1).trim;
-      } else if (up.indexOf('#EXTHTTP:') === 0) { if (this.pending) this.pending.headersJson = line.substring(9).trim; }
+        if (eq > 0 && this.pending) this.pending.options[opt.substring(0, eq).trim().toLowerCase()] = opt.substring(eq + 1).trim();
+      } else if (up.indexOf('#EXTHTTP:') === 0) { if (this.pending) this.pending.headersJson = line.substring(9).trim(); }
       return;
     }
     if (!URL_RE.test(line)) return;
@@ -162,11 +162,11 @@ export class M3uParser {
       num: n,
       name: name,
       url: url,
-      group: a['group-title']? a['group-title']: this.group,
+      group: a['group-title'] ? a['group-title'] : this.group,
       logo: first(a['tvg-logo'], a['logo']) || '',
       tvgId: a['tvg-id'] || '',
       tvgName: a['tvg-name'] || '',
-      tvgShift: shift!== null? shift: hshift!== null? hshift: 0,
+      tvgShift: shift !== null ? shift : hshift !== null ? hshift : 0,
       catchup: this.catchupOf(a),
       userAgent: first(p.options['http-user-agent'], a['http-user-agent'], a['user-agent']) || '',
       referrer: first(p.options['http-referrer'], p.options['http-referer'], a['http-referrer'], a['http-referer'], a['referer']) || '',
@@ -177,13 +177,13 @@ export class M3uParser {
   /** Архив канала. days = 0 — «по умолчанию из настроек» */
   private catchupOf(a: { [k: string]: string }): Catchup | null {
     const h = this.header;
-    const d = (first(a['catchup-days'], a['tvg-rec'], a['timeshift'], h['catchup-days'], h['tvg-rec'], h['timeshift']) || '0').trim;
-    let days = /^-?\d+$/.test(d)? parseInt(d, 10): 0;
+    const d = (first(a['catchup-days'], a['tvg-rec'], a['timeshift'], h['catchup-days'], h['tvg-rec'], h['timeshift']) || '0').trim();
+    let days = /^-?\d+$/.test(d) ? parseInt(d, 10) : 0;
     let enabled: boolean;
-    if (a['catchup-enable']!== undefined) enabled = (parseInt(a['catchup-enable'], 10) || 0) > 0;
-    else enabled = days > 0 ||!!first(a['catchup'], a['catchup-type'], a['catchup-source']);
+    if (a['catchup-enable'] !== undefined) enabled = (parseInt(a['catchup-enable'], 10) || 0) > 0;
+    else enabled = days > 0 || !!first(a['catchup'], a['catchup-type'], a['catchup-source']);
     const type = first(a['catchup'], a['catchup-type'], h['catchup'], h['catchup-type']) || '';
-    if (!enabled || type.toLowerCase === 'disabled') return null;
+    if (!enabled || type.toLowerCase() === 'disabled') return null;
     if (days < 0) days = 0;
     return { type: type, source: first(a['catchup-source'], h['catchup-source']) || '', days: days };
   }

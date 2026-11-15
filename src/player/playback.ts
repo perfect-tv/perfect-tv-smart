@@ -1,5 +1,5 @@
 /**
- * Воспроизведение (§8): один <video> на всё время; HLS — hls.js (MSE), остальное
+ * Воспроизведение (docs/TZ.md, §8): один <video> на всё время; HLS — hls.js (MSE), остальное
  * и запасной вариант — встроенный плеер webOS (video.src).
  *
  * Время: «окно» — доступный для перемотки отрезок потока (seekable). Для HLS с
@@ -22,12 +22,12 @@ export interface Track { id: number; kind: 'audio' | 'text'; lang: string; label
 export interface PlaybackListener {
   onState(playing: boolean, buffering: boolean): void;
   /** Первые данные ссылки (можно ставить позицию) */
-  onReady: void;
-  onEnded: void;
+  onReady(): void;
+  onEnded(): void;
   /** Фатальная ошибка: network — сеть / CORS, media — декодер / формат, live — отстали от окна эфира */
   onError(kind: 'network' | 'media' | 'live', detail: string): void;
   onVideoSize(w: number, h: number): void;
-  onTracks: void;
+  onTracks(): void;
 }
 
 export function isHlsUrl(url: string): boolean {
@@ -57,26 +57,26 @@ export class Playback {
     this.l = l;
     const v = video;
     const self = this;
-    v.addEventListener('playing', function  { self.l.onState(true, false); self.fireReady; });
-    v.addEventListener('waiting', function  { self.l.onState(!v.paused, true); });
-    v.addEventListener('pause', function  { self.l.onState(false, false); });
-    v.addEventListener('canplay', function  { self.fireReady; });
-    v.addEventListener('loadedmetadata', function  { self.l.onVideoSize(v.videoWidth, v.videoHeight); });
-    v.addEventListener('resize', function  { self.l.onVideoSize(v.videoWidth, v.videoHeight); });
-    v.addEventListener('ended', function  { self.l.onEnded; });
-    v.addEventListener('error', function  {
-      if (self.engine!== 'native') return;
+    v.addEventListener('playing', function () { self.l.onState(true, false); self.fireReady(); });
+    v.addEventListener('waiting', function () { self.l.onState(!v.paused, true); });
+    v.addEventListener('pause', function () { self.l.onState(false, false); });
+    v.addEventListener('canplay', function () { self.fireReady(); });
+    v.addEventListener('loadedmetadata', function () { self.l.onVideoSize(v.videoWidth, v.videoHeight); });
+    v.addEventListener('resize', function () { self.l.onVideoSize(v.videoWidth, v.videoHeight); });
+    v.addEventListener('ended', function () { self.l.onEnded(); });
+    v.addEventListener('error', function () {
+      if (self.engine !== 'native') return;
       const e = v.error;
-      self.l.onError(e && e.code === 2? 'network': 'media', e? 'code ' + e.code: '');
+      self.l.onError(e && e.code === 2 ? 'network' : 'media', e ? 'code ' + e.code : '');
     });
   }
 
-  static hlsSupported: boolean {
-    return typeof Hls!== 'undefined' && Hls.isSupported;
+  static hlsSupported(): boolean {
+    return typeof Hls !== 'undefined' && Hls.isSupported();
   }
 
   play(url: string, opts: PlayOpts) {
-    this.stop;
+    this.stop();
     this.url = url;
     this.fromStart = opts.fromStart;
     this.readyFired = false;
@@ -86,16 +86,16 @@ export class Playback {
     this.recovered = 0;
     const v = this.video;
     const hlsUrl = opts.forceHls || isHlsUrl(url);
-    if (hlsUrl &&!opts.native && Playback.hlsSupported) {
+    if (hlsUrl && !opts.native && Playback.hlsSupported()) {
       this.engine = 'hls';
       this.startHls(url, opts.fromStart);
     } else {
       this.engine = 'native';
       v.src = url;
-      v.load;
+      v.load();
     }
-    const p: any = v.play;
-    if (p && p.catch) p.catch(function  { /* автозапуск без звука — не наш случай; ошибки придут событием */ });
+    const p: any = v.play();
+    if (p && p.catch) p.catch(function () { /* автозапуск без звука — не наш случай; ошибки придут событием */ });
     this.l.onState(false, true);
   }
 
@@ -105,7 +105,7 @@ export class Playback {
       enableWorker: true,
       lowLatencyMode: false,
       // архив: с начала окна; эфир — у края (по умолчанию)
-      startPosition: fromStart? 0: -1,
+      startPosition: fromStart ? 0 : -1,
       maxBufferLength: 20,
       maxMaxBufferLength: 40,
       backBufferLength: 30,
@@ -118,87 +118,87 @@ export class Playback {
     });
     this.hls = hls;
     hls.on(Hls.Events.LEVEL_LOADED, function (_e: any, data: any) {
-      if (self.hls!== hls) return;
+      if (self.hls !== hls) return;
       const d = data.details;
-      self.isLive =!!d.live;
+      self.isLive = !!d.live;
       const f = d.fragments && d.fragments[0];
       if (f && f.programDateTime) self.pdtBaseMs = f.programDateTime - f.start * 1000;
       // «растущий» плейлист: hls.js мог начать у края, хотя просили начало окна
-      if (self.fromStart &&!self.startSeekDone && f) {
+      if (self.fromStart && !self.startSeekDone && f) {
         self.startSeekDone = true;
         if (self.video.currentTime > f.start + 5) self.video.currentTime = f.start;
       }
     });
-    hls.on(Hls.Events.MANIFEST_PARSED, function  { self.l.onTracks; });
-    hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, function  { self.applyLangs; self.l.onTracks; });
-    hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, function  { self.applyLangs; self.l.onTracks; });
+    hls.on(Hls.Events.MANIFEST_PARSED, function () { self.l.onTracks(); });
+    hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, function () { self.applyLangs(); self.l.onTracks(); });
+    hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, function () { self.applyLangs(); self.l.onTracks(); });
     hls.on(Hls.Events.ERROR, function (_e: any, data: any) {
-      if (self.hls!== hls ||!data.fatal) return;
+      if (self.hls !== hls || !data.fatal) return;
       console.warn('hls fatal', data.type, data.details);
       if (data.type === Hls.ErrorTypes.MEDIA_ERROR && self.recovered < 1) {
         self.recovered++;
-        hls.recoverMediaError;
+        hls.recoverMediaError();
         return;
       }
-      const kind = data.type === Hls.ErrorTypes.NETWORK_ERROR? 'network': 'media';
+      const kind = data.type === Hls.ErrorTypes.NETWORK_ERROR ? 'network' : 'media';
       self.l.onError(kind, data.details || '');
     });
     hls.loadSource(url);
     hls.attachMedia(this.video);
   }
 
-  private fireReady {
+  private fireReady() {
     if (this.readyFired) return;
     this.readyFired = true;
-    this.l.onReady;
+    this.l.onReady();
   }
 
-  stop {
+  stop() {
     clearTimeout(this.stallTimer);
     if (this.hls) {
-      try { this.hls.destroy; } catch (e) { /* */ }
+      try { this.hls.destroy(); } catch (e) { /* */ }
       this.hls = null;
     }
     const v = this.video;
     try {
-      v.pause;
+      v.pause();
       v.removeAttribute('src');
-      v.load;
+      v.load();
     } catch (e) { /* */ }
     this.engine = '';
   }
 
-  get paused: boolean { return this.video.paused; }
-  pause { this.video.pause; }
-  resume { const p: any = this.video.play; if (p && p.catch) p.catch(function  { /* */ }); }
+  get paused(): boolean { return this.video.paused; }
+  pause() { this.video.pause(); }
+  resume() { const p: any = this.video.play(); if (p && p.catch) p.catch(function () { /* */ }); }
 
   /** Медиа-время, мс */
-  get positionMs: number { return this.video.currentTime * 1000; }
+  get positionMs(): number { return this.video.currentTime * 1000; }
 
-  get bufferedAheadMs: number {
+  get bufferedAheadMs(): number {
     const v = this.video, b = v.buffered, t = v.currentTime;
     for (let i = 0; i < b.length; i++) if (b.start(i) <= t + 0.5 && b.end(i) >= t) return (b.end(i) - t) * 1000;
     return 0;
   }
 
   /** Есть окно для перемотки */
-  get seekable: boolean {
+  get seekable(): boolean {
     const s = this.video.seekable;
     return s.length > 0 && s.end(s.length - 1) - s.start(0) > 10;
   }
   /** Начало окна в медиа-времени, мс */
-  get windowOffsetMs: number { const s = this.video.seekable; return s.length? s.start(0) * 1000: 0; }
-  get windowDurationMs: number { const s = this.video.seekable; return s.length? (s.end(s.length - 1) - s.start(0)) * 1000: 0; }
+  get windowOffsetMs(): number { const s = this.video.seekable; return s.length ? s.start(0) * 1000 : 0; }
+  get windowDurationMs(): number { const s = this.video.seekable; return s.length ? (s.end(s.length - 1) - s.start(0)) * 1000 : 0; }
   /** Поток «живой» (EVENT / эфир): плейлист дописывается */
-  get live: boolean { return this.engine === 'hls'? this.isLive:!isFinite(this.video.duration); }
+  get live(): boolean { return this.engine === 'hls' ? this.isLive : !isFinite(this.video.duration); }
 
   /** Время кадра по PROGRAM-DATE-TIME, мс (null — нет) */
-  get wallClockMs: number | null {
+  get wallClockMs(): number | null {
     if (this.pdtBaseMs === null) return null;
     return this.pdtBaseMs + this.video.currentTime * 1000;
   }
   /** Время (по PROGRAM-DATE-TIME) начала окна, мс */
-  get windowStartTimeMs: number | null {
+  get windowStartTimeMs(): number | null {
     if (this.pdtBaseMs === null) return null;
     return this.pdtBaseMs + this.windowOffsetMs;
   }
@@ -210,7 +210,7 @@ export class Playback {
 
   // ---------------------------------------------------------------- дорожки
 
-  tracks: Track[] {
+  tracks(): Track[] {
     const out: Track[] = [];
     const h = this.hls;
     if (!h) return out;
@@ -225,15 +225,15 @@ export class Playback {
     const h = this.hls;
     if (!h) return;
     if (kind === 'audio' && t) { h.audioTrack = t.id; this.audioLang = t.lang; }
-    if (kind === 'text') { h.subtitleTrack = t? t.id: -1; h.subtitleDisplay =!!t; this.subtitleLang = t? t.lang: ''; }
+    if (kind === 'text') { h.subtitleTrack = t ? t.id : -1; h.subtitleDisplay = !!t; this.subtitleLang = t ? t.lang : ''; }
   }
 
-  private applyLangs {
+  private applyLangs() {
     const h = this.hls;
     if (!h) return;
     if (this.audioLang) {
       const a = h.audioTracks || [];
-      for (let i = 0; i < a.length; i++) if (a[i].lang === this.audioLang && h.audioTrack!== i) { h.audioTrack = i; break; }
+      for (let i = 0; i < a.length; i++) if (a[i].lang === this.audioLang && h.audioTrack !== i) { h.audioTrack = i; break; }
     }
     if (this.subtitleLang) {
       const s = h.subtitleTracks || [];
@@ -244,8 +244,8 @@ export class Playback {
   /** Формат кадра: 0 — вписать, 1 — растянуть, 2 — увеличить */
   setAspect(mode: number) {
     const st: any = this.video.style;
-    st.objectFit = mode === 1? 'fill': mode === 2? 'cover': 'contain';
+    st.objectFit = mode === 1 ? 'fill' : mode === 2 ? 'cover' : 'contain';
   }
 
-  get height: number { return this.video.videoHeight || 0; }
+  get height(): number { return this.video.videoHeight || 0; }
 }
