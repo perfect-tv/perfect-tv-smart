@@ -17,6 +17,8 @@ import { Logos } from './logos';
 import { PinLayer } from './pin';
 import { FormLayer, MessageLayer, Scroller } from './popups';
 import { QrPlaylistLayer } from './qrplaylist';
+import { LicensesLayer, QrLinkLayer } from './about';
+import { About } from '../core/about';
 import type { Tv } from './tv';
 import { U } from './u';
 import { hintRow } from './widgets';
@@ -71,7 +73,7 @@ export class SettingsLayer implements Layer {
   }
 
   private titles: string[] {
-    return [str('playlists'), str('viewing'), str('appearance'), str('channel_list'), str('parental_lock'), str('network'), str('data_and_backup')];
+    return [str('playlists'), str('viewing'), str('appearance'), str('channel_list'), str('parental_lock'), str('network'), str('data_and_backup'), str('about_app')];
   }
 
   private buildNav {
@@ -108,6 +110,7 @@ export class SettingsLayer implements Layer {
       function  { return self.pageLock; },
       function  { return self.pageNetwork; },
       function  { return self.pageData; },
+      function  { return self.pageAbout; },
     ][i];
     return { title: t, items: f };
   }
@@ -467,6 +470,27 @@ export class SettingsLayer implements Layer {
       { name: str('proxy_mode'), desc: str('proxy_mode_sub'), values: [str('proxy_auto'), str('proxy_always'), str('proxy_never')], index: function  { return Prefs.proxyMode; }, pick: function (i) { Prefs.proxyMode = i; } },
       { name: str('platform'), value: function  { return Platform.isWebOS? 'webOS ' + (Platform.version || ''): navigator.userAgent.replace(/^.*(Chrom(e|ium)\/[\d.]+).*$/, '$1'); }, note: false },
     ];
+  }
+
+  /** О программе: версия, ссылки (QR-кодом — на ТВ ссылку не нажать), лицензии */
+  private pageAbout: SItem[] {
+    const tv = this.tv;
+    const qr = function (title: string, url: string) {
+      let layer: QrLinkLayer | null = null;
+      layer = new QrLinkLayer(tv.ui, title, url, function  { tv.remove(layer!); });
+      tv.push(layer);
+    };
+    const link = function (name: string, desc: string, url: string): SItem[] {
+      return url? [{ name: name, desc: desc, value: function  { return url.replace(/^https?:\/\//, ''); }, action: function  { qr(name, url); } }]: [];
+    };
+    const items: SItem[] = [
+      { name: 'Perfect TV', value: function  { return str('about_version', About.version); }, desc: str('about_sub') },
+    ];
+    return items.concat(link(str('about_telegram'), str('about_telegram_sub'), About.telegram)).concat(link(str('about_donate'), str('about_donate_sub'), About.donate)).concat(link(str('about_github'), str('about_github_sub'), About.github)).concat([{ name: str('about_licenses'), desc: str('about_licenses_sub'), action: function  {
+        let layer: LicensesLayer | null = null;
+        layer = new LicensesLayer(tv.ui, function  { tv.remove(layer!); });
+        tv.push(layer);
+      } }]);
   }
 
   private pageData: SItem[] {

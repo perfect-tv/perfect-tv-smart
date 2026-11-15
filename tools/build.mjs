@@ -28,7 +28,7 @@ async function bundle(entry) {
     sourcemap: false,
     minify: false,
     legalComments: 'none',
-    define: { DEV: dev? 'true': 'false' },
+    define: { DEV: dev? 'true': 'false', APP_VERSION: JSON.stringify(JSON.parse(fs.readFileSync(path.join(root, 'appinfo.json'), 'utf8')).version) },
     logLevel: 'warning',
   });
   const out = ts.transpileModule(res.outputFiles[0].text, {

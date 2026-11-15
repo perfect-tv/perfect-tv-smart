@@ -512,5 +512,22 @@
  "sqlite_storage": "App storage (service files)",
  "sqlite_storage_sub": "All data is kept by the app service in files, without the browser storage quota; OK to recheck",
  "sqlite_ready": "Connected",
- "sqlite_not_ready": "Unavailable"
+ "sqlite_not_ready": "Unavailable",
+ "about_app": "About",
+ "about_version": "version %1$s",
+ "about_sub": "IPTV player for LG webOS TVs",
+ "about_telegram": "Telegram channel",
+ "about_telegram_sub": "news, new versions, questions",
+ "about_donate": "Support the project",
+ "about_donate_sub": "if you like the app — thank you!",
+ "about_github": "Source code",
+ "about_github_sub": "GitHub: code, bugs and suggestions",
+ "about_licenses": "Licenses",
+ "about_licenses_sub": "Perfect TV and third-party components",
+ "about_scan_hint": "Point your phone camera at the code",
+ "about_license_app": "Distributed under the %1$s license.",
+ "about_license_app_none": "All rights reserved.",
+ "about_tmdb": "Movie descriptions and posters — The Movie Database (TMDB). This product uses the TMDB API but is not endorsed or certified by TMDB.",
+ "about_trademarks_title": "Trademarks",
+ "about_trademarks": "LG and webOS are trademarks of LG Electronics. Perfect TV is an independent app not affiliated with LG Electronics."
 }
