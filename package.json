@@ -11,7 +11,8 @@
     "package": "node tools/build.mjs && node -e \"require('fs').rmSync('dist/dev-playlist.txt',{force:true})\" && ares-package -o out dist service",
     "test:service": "node tools/test-luna-stream.js && node tools/test-filestore.js && node tools/test-filekv.js && node tools/test-gc.js && node tools/test-keep.js && node tools/test-epgservice.js",
     "test:epg-large": "node tools/test-epg-large.js",
-    "installer": "tools/make-installer.sh"
+    "installer": "tools/make-installer.sh",
+    "i18n": "node tools/i18n.mjs"
   },
   "type": "commonjs",
   "devDependencies": {

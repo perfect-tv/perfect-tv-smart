@@ -1,5 +1,5 @@
 import { Clock } from '../core/clock';
-import { plural, str } from '../core/lang';
+import { lang, languages, plural, str } from '../core/lang';
 import { Net } from '../core/net';
 import { Platform } from '../core/platform';
 import { Prefs } from '../core/prefs';
@@ -376,9 +376,12 @@ export class SettingsLayer implements Layer {
 
   private pageAppearance: SItem[] {
     const self = this;
-    const langs = ['', 'ru', 'en'];
+    // языки — все переводы из strings/ (core/langs.ts); название пункта — и по-английски, чтобы
+    // найти его в незнакомом языке
+    const list = languages;
+    const langs = [''].concat(list.map(function (l) { return l.code; }));
     return [
-      { name: 'Язык / Language', values: [str('system'), 'Русский', 'English'], index: function  { return Math.max(0, langs.indexOf(Prefs.language)); }, pick: function (i) { Prefs.language = langs[i]; self.relabelAll; } },
+      { name: lang === 'en'? 'Language': str('interface_language') + ' / Language', values: [str('system')].concat(list.map(function (l) { return l.name; })), index: function  { return Math.max(0, langs.indexOf(Prefs.language)); }, pick: function (i) { Prefs.language = langs[i]; self.relabelAll; } },
       { name: str('interface_size'), desc: str('larger_for_a_big_room'), values: [str('size_small'), str('size_normal'), str('size_large')], index: function  { return Prefs.uiScale; }, pick: function (i) { Prefs.uiScale = i; U.init; self.tv.relabel; } },
       { name: str('channel_number'), desc: str('without_a_logo_the_number_is_always'), values: [str('hidden'), str('next_to_the_name'), str('badge_on_the_logo')], index: function  { return Prefs.numberMode; }, pick: function (i) { Prefs.numberMode = i; } },
       { name: str('logo_priority'), desc: str('logo_priority_sub'), values: [str('logo_from_playlist'), str('logo_from_programme')], index: function  { return Prefs.logoPriority; }, pick: function (i) { Prefs.logoPriority = i; } },

@@ -1,4 +1,6 @@
 {
+ "_name": "English",
+ "_plural": "en",
  "app_name": "Perfect TV",
  "counter": "%1$d / %2$d",
  "num_name": "%1$d  %2$s",
@@ -529,5 +531,7 @@
  "about_license_app_none": "All rights reserved.",
  "about_tmdb": "Movie descriptions and posters — The Movie Database (TMDB). This product uses the TMDB API but is not endorsed or certified by TMDB.",
  "about_trademarks_title": "Trademarks",
- "about_trademarks": "LG and webOS are trademarks of LG Electronics. Perfect TV is an independent app not affiliated with LG Electronics."
+ "about_trademarks": "LG and webOS are trademarks of LG Electronics. Perfect TV is an independent app not affiliated with LG Electronics.",
+ "interface_language": "Language",
+ "language_button": "Language: %1$s"
 }

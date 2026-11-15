@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import en from '../strings/en.json';
-import ru from '../strings/ru.json';
-import { quantity } from '../src/core/lang';
+import { LANGS } from '../src/core/langs';
+import { detect, quantity, PLURAL_RULES } from '../src/core/lang';
+
+const STRINGS = path.join(__dirname, '../strings');
+const files = fs.readdirSync(STRINGS).filter(f => f.endsWith('.json'));
+const table = (f: string) => JSON.parse(fs.readFileSync(path.join(STRINGS, f), 'utf8'));
+const en = table('en.json');
 
 /** Ключи строк, которые использует код: str('…') / plural('…') */
 function usedKeys(): string[] {
@@ -24,19 +28,52 @@ function usedKeys(): string[] {
   return Array.from(out);
 }
 
-const subs = (v: any) => JSON.stringify(v).match(/%\d\$[sd]/g)?.sort() ?? [];
+const subs = (v: any) => (JSON.stringify(v).match(/%\d\$[sd]/g) ?? []).filter((x, i, a) => a.indexOf(x) === i).sort();
 
 describe('Строки', () => {
-  it('все ключи кода есть в обоих языках', () => {
-    const miss = usedKeys().filter(k => !(k in en) || !(k in ru));
-    expect(miss).toEqual([]);
+  it('все ключи кода есть в английском (основа) и русском (поддерживается вместе с кодом)', () => {
+    const ru = table('ru.json');
+    expect(usedKeys().filter(k => !(k in en) || !(k in ru))).toEqual([]);
   });
-  it('подстановки совпадают', () => {
-    const bad = Object.keys(en).filter(k => k in ru && JSON.stringify(subs((en as any)[k]).filter((x, i, a) => a.indexOf(x) === i)) !== JSON.stringify(subs((ru as any)[k]).filter((x, i, a) => a.indexOf(x) === i)));
-    expect(bad).toEqual([]);
+
+  it('каждый strings/*.json зарегистрирован в core/langs.ts', () => {
+    expect(files.map(f => f.replace(/\.json$/, '')).sort()).toEqual(Object.keys(LANGS).sort());
   });
+
+  for (const f of files) {
+    describe(f, () => {
+      const t = table(f);
+      it('есть _name и известное правило _plural', () => {
+        expect(typeof t._name).toBe('string');
+        expect(PLURAL_RULES).toContain(t._plural);
+      });
+      it('нет ключей, которых нет в английском (опечатка или устаревшая строка)', () => {
+        expect(Object.keys(t).filter(k => !k.startsWith('_') && !(k in en))).toEqual([]);
+      });
+      it('подстановки (%1$s, %1$d…) — как в английском', () => {
+        expect(Object.keys(t).filter(k => k in en && JSON.stringify(subs(t[k])) !== JSON.stringify(subs(en[k])))).toEqual([]);
+      });
+      it('у счётных строк — формы по правилу языка', () => {
+        const need = new Set([0, 1, 2, 3, 5, 11, 21, 22, 25, 101, 111].map(n => quantity(t._plural, n)));
+        const bad = Object.keys(t).filter(k => typeof t[k] === 'object' && !(k.startsWith('_')) && Array.from(need).some(q => !(q in t[k]) && !('other' in t[k])));
+        expect(bad).toEqual([]);
+      });
+    });
+  }
+
   it('формы чисел', () => {
     expect([1, 2, 5, 11, 21, 22, 25, 112].map(n => quantity('ru', n))).toEqual(['one', 'few', 'many', 'many', 'one', 'few', 'many', 'many']);
     expect([1, 2].map(n => quantity('en', n))).toEqual(['one', 'other']);
+    expect([1, 2, 5, 22, 25].map(n => quantity('pl', n))).toEqual(['one', 'few', 'many', 'few', 'many']);
+    expect([0, 1, 2].map(n => quantity('fr', n))).toEqual(['one', 'one', 'other']);
+    expect([1, 3, 7].map(n => quantity('cs', n))).toEqual(['one', 'few', 'other']);
+    expect([1, 5].map(n => quantity('other', n))).toEqual(['other', 'other']);
+  });
+
+  it('язык по системе', () => {
+    expect(detect('ru-RU')).toBe('ru');
+    expect(detect('en-US')).toBe('en');
+    expect(detect('uk-UA')).toBe('uk' in LANGS ? 'uk' : 'ru');
+    expect(detect('de-DE')).toBe('de' in LANGS ? 'de' : 'en');
   });
 });
