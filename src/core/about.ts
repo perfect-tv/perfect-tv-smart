@@ -7,14 +7,14 @@ declare const APP_VERSION: string;
 
 export const About = {
   get version(): string { return typeof APP_VERSION === 'string' ? APP_VERSION : ''; },
-  /** Исходный код */
+  /** Исходный код (репозитория на GitHub пока нет — пункт скрыт) */
   github: '',
   /** Телеграм-канал */
-  telegram: '',
+  telegram: 'https://t.me/perfect_tv_app',
   /** Поддержать проект (страница доната) */
-  donate: '',
+  donate: 'https://boosty.to/rootu/donate',
   /** Лицензия Perfect TV (название; текст — в LICENSE репозитория) */
-  license: '',
+  license: 'GNU GPL 3.0',
 };
 
 /** Сторонний код в сборке и данные: название, версия, лицензия, правообладатель */

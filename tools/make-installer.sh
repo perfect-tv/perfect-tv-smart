@@ -11,7 +11,7 @@ GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../../out/Perfe
 go build -trimpath -ldflags "-s -w" -o ../../out/perfecttv-installer-linux .
 cd ../..
 rm -rf out/installer && mkdir -p out/installer
-cp out/PerfectTV-Installer.exe "$IPK" out/installer/
+cp out/PerfectTV-Installer.exe "$IPK" LICENSE out/installer/
 sed 's/$/\r/' tools/tv-installer/README.txt > "out/installer/Как установить.txt"
 rm -f "out/PerfectTV-Installer-${VER}.zip"
 (cd out/installer && zip -q -r "../PerfectTV-Installer-${VER}.zip" .)

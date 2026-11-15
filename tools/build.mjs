@@ -80,6 +80,7 @@ async function build {
   copy(path.join(root, 'node_modules/hls.js/dist/hls.min.js'), path.join(dist, 'hls.min.js'));
   copy(path.join(root, 'src/index.html'), path.join(dist, 'index.html'));
   copy(path.join(root, 'appinfo.json'), path.join(dist, 'appinfo.json'));
+  copy(path.join(root, 'LICENSE'), path.join(dist, 'LICENSE'));   // GPL 3.0: текст лицензии — вместе с приложением
   for (const f of fs.readdirSync(path.join(root, 'assets'))) copy(path.join(root, 'assets', f), path.join(dist, f));
   console.log(`dist/app.js ${(app.length / 1024).toFixed(0)} KB, Node epg-parser.js ${(serviceEs5.length / 1024).toFixed(0)} KB, ${Date.now - t0} ms`);
 }
