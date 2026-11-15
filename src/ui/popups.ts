@@ -480,12 +480,28 @@ export interface Field { label: string; value: string; type?: string; input?: HT
  * Форма: поля и кнопки. ↑/↓ — поле или ряд кнопок, OK на поле — ввод (системная клавиатура),
  * ←/→ — кнопки.
  */
+/** Строка над формой: подпись и кнопка (выбор языка в окне первого запуска) */
+export interface FormLead { label: string; button: string; action:  => void }
+
 export class FormLayer extends PopupLayer {
   private index = 0;
   private button = 0;
   private btnViews: HTMLElement[];
-  constructor(parent: HTMLElement, title: string, private fields: Field[], labels: string[], private onAction: (i: number, values: string[]) => void, private onBack:  => void, note?: string) {
+  private leadView: HTMLElement | null = null;
+  constructor(parent: HTMLElement, title: string, private fields: Field[], labels: string[], private onAction: (i: number, values: string[]) => void, private onBack:  => void, note?: string,
+    private lead?: FormLead, focusLead?: boolean) {
     super(parent, 60);
+    if (lead) {
+      // над формой: «Language:» и кнопка; фокус — выше первого поля (index −1)
+      const row = el('div', 'row', null, this.win);
+      row.style.cssText = 'margin-bottom:1.2rem';
+      el('div', 't60', lead.label, row).style.cssText = 'font-size:1.3rem;margin-right:1rem';
+      const b = el('div', 'btn', lead.button, row);
+      b.style.marginRight = '0';
+      b.addEventListener('click', function  { lead.action; });
+      this.leadView = b;
+      if (focusLead) this.index = -1;
+    }
     this.head(null, title);
     if (note) { const n = el('div', 't60', note, this.win); n.style.cssText = 'font-size:1.2rem;line-height:1.7rem;margin:-0.4rem 0 1rem;white-space:pre-line'; }
     const self = this;
@@ -523,6 +539,7 @@ export class FormLayer extends PopupLayer {
   values: string[] { return this.fields.map(function (f) { return f.input? f.input.value.trim: ''; }); }
 
   private applyFocus(open: boolean) {
+    if (this.leadView) toggle(this.leadView, 'f', this.index === -1);
     for (let i = 0; i < this.fields.length; i++) toggle(this.fields[i].input!, 'f', this.index === i);
     this.select(this.btnViews, this.index === this.fields.length? this.button: -1);
     if (open && this.index < this.fields.length) this.fields[this.index].input!.focus;
@@ -530,7 +547,7 @@ export class FormLayer extends PopupLayer {
 
   key(name: string) {
     const n = this.fields.length;
-    if (name === 'up') this.index = Math.max(0, this.index - 1);
+    if (name === 'up') this.index = Math.max(this.leadView? -1: 0, this.index - 1);
     else if (name === 'down') this.index = Math.min(n, this.index + 1);
     else if (name === 'left' && this.index === n) this.button = Math.max(0, this.button - 1);
     else if (name === 'right' && this.index === n) this.button = Math.min(this.btnViews.length - 1, this.button + 1);
@@ -539,6 +556,7 @@ export class FormLayer extends PopupLayer {
   }
 
   enter {
+    if (this.index === -1 && this.lead) { this.lead.action; return; }
     if (this.index < this.fields.length) { this.applyFocus(true); return; }
     this.onAction(this.button, this.values);
   }

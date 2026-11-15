@@ -21,6 +21,7 @@ import { Layer } from './layer';
 import { Logos } from './logos';
 import { MenuItem, MenuLayer, MenuPage, MenuTile } from './menu';
 import { PinLayer } from './pin';
+import { QrPlaylistLayer } from './qrplaylist';
 import { DetailsLayer, FormLayer, HelpLayer, ListItem, ListLayer, LogLayer, MessageLayer, ReminderLayer } from './popups';
 import { ScheduleLayer } from './schedule';
 import { SearchLayer } from './search';
@@ -263,21 +264,40 @@ export class Tv {
     x.send();
   }
 
-  /** Мастер первого плейлиста: адрес и имя; третья кнопка — язык интерфейса (по OK — список) */
-  wizard(values?: string[]) {
+  /**
+   * Мастер первого плейлиста: адрес и имя, «С телефона (QR)», «Настройки». Над формой — «Language:»
+   * (не переводится: найти, не зная языка интерфейса) и кнопка с названием языка — по OK список.
+   */
+  wizard(values?: string[], focusLanguage?: boolean) {
     const self = this;
     let layer: FormLayer | null = null;
     const cur = languages().filter(function (l) { return l.code === lang(); })[0];
     layer = new FormLayer(this.ui, str('add_playlist'), [
       { label: str('playlist_address'), value: values ? values[0] : '', type: 'url' },
       { label: str('name'), value: values ? values[1] : '' },
-    ], [str('add'), str('settings'), str('language_button', cur ? cur.name : lang())], function (i, v) {
-      if (i === 1) { self.remove(layer!); self.openSettings(); return; }
-      if (i === 2) { self.chooseLanguage(function () { self.remove(layer!); self.wizard(v); }); return; }
+    ], [str('add'), str('playlist_from_phone'), str('settings')], function (i, v) {
+      if (i === 2) { self.remove(layer!); self.openSettings(); return; }
+      if (i === 1) { self.wizardQr(function () { self.remove(layer!); }); return; }
       if (!v[0]) { self.toast.show(str('enter_the_address')); return; }
       self.remove(layer!);
       self.repo.addPlaylist(v[1] || str('playlist'), v[0]).then(function (p) { self.open(p); });
-    }, function () { self.exitRequest(); }, str('wizard_note'));
+    }, function () { self.exitRequest(); }, str('wizard_note'), {
+      label: 'Language:',
+      button: cur ? cur.name : lang(),
+      action: function () { self.chooseLanguage(function () { const v = layer!.values(); self.remove(layer!); self.wizard(v, true); }); },
+    }, focusLanguage);
+    this.push(layer);
+  }
+
+  /** Плейлист с телефона (QR) из окна первого запуска: пришла ссылка — добавить и открыть */
+  private wizardQr(closeWizard: () => void) {
+    const self = this;
+    let layer: QrPlaylistLayer | null = null;
+    layer = new QrPlaylistLayer(this.ui, function (url, name) {
+      self.remove(layer!);
+      closeWizard();
+      self.repo.addPlaylist(name || str('playlist'), url).then(function (p) { self.open(p); }, function () { self.toast.show(str('playlist_qr_save_error')); self.wizard(); });
+    }, function () { self.remove(layer!); });
     this.push(layer);
   }
 
