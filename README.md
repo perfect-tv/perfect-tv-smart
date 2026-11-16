@@ -11,6 +11,10 @@
 
 Документы: [docs/TZ.md](docs/TZ.md) — ТЗ и решения по платформе, [docs/controls.md](docs/controls.md) — управление, [docs/design.md](docs/design.md) — оформление, [docs/PLAN.md](docs/PLAN.md) — план и что проверено.
 
+## Лицензия и участие
+
+GNU GPL 3.0 (`LICENSE`), сторонний код — в `NOTICE`. Название и логотип «Perfect TV» лицензией не охвачены. Хотите помочь — `CONTRIBUTING.md` (в том числе соглашение `CLA.md`).
+
 ## Сборка
 
 Нужен Node.js 18+.
