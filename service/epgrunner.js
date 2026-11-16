@@ -28,6 +28,7 @@ function spawn() {
     return;
   }
   child = cp;
+  lowerPriority(cp.pid);
   var readyTimer = setTimeout(function () {
     if (!childOk) { console.warn('EPG child: no ready'); fail(); }
   }, 10000);
@@ -62,6 +63,28 @@ function spawn() {
     if (child === cp) fail();
   });
   cp.on('error', function (e) { console.warn('EPG child error', e && e.message); if (child === cp) fail(); });
+}
+
+/**
+ * Разбор программы — с пониженным приоритетом (nice 10): большая программа (iptvx.one — 98 МБ gz)
+ * разбирается минутами, и всё это время прокси этого же сервиса (поток с заголовками канала идёт
+ * через него) и плеер получали меньше процессора — запуск канала на слабом ТВ 2–3 с вместо 1,5–2.
+ * В Node 0.12 нет os.setPriority — renice (util-linux на webOS); нет его — работаем как есть.
+ */
+var NICE = 10;
+function lowerPriority(pid) {
+  if (!pid) return;
+  var bins = ['renice', '/usr/bin/renice', '/bin/renice'];
+  (function next(i) {
+    if (i >= bins.length) { console.warn('EPG child: renice unavailable'); return; }
+    try {
+      require('child_process').execFile(bins[i], ['-n', String(NICE), '-p', String(pid)], { timeout: 5000 }, function (err) {
+        if (err && err.code === 'ENOENT') return next(i + 1);
+        if (err) console.warn('EPG child: renice failed', err.message);
+        else console.log('EPG child: nice', NICE, 'pid', pid);
+      });
+    } catch (e) { next(i + 1); }
+  })(0);
 }
 
 /** Дочерний процесс недоступен: незавершённые задачи — с ошибкой, дальше — в этом процессе */
