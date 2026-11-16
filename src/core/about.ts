@@ -7,8 +7,8 @@ declare const APP_VERSION: string;
 
 export const About = {
   get version(): string { return typeof APP_VERSION === 'string' ? APP_VERSION : ''; },
-  /** Исходный код (репозитория на GitHub пока нет — пункт скрыт) */
-  github: '',
+  /** Исходный код */
+  github: 'https://github.com/perfect-tv/perfect-tv-smart',
   /** Телеграм-канал */
   telegram: 'https://t.me/perfect_tv_app',
   /** Поддержать проект (страница доната) */

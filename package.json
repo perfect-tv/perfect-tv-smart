@@ -1,7 +1,8 @@
 {
-  "name": "perfecttv-webos",
+  "name": "perfect-tv-smart",
   "version": "1.0.9",
-  "description": "Perfect TV — IPTV-плеер для LG webOS",
+  "description": "Perfect TV — IPTV-плеер для смарт-ТВ: LG webOS, Samsung Tizen, браузер",
+  "repository": "github:perfect-tv/perfect-tv-smart",
   "scripts": {
     "build": "node tools/build.mjs",
     "dev": "node tools/build.mjs --watch",
