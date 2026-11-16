@@ -56,6 +56,26 @@ python3 -m http.server 8731 --bind 127.0.0.1 --directory dist-browser
 
 В ней нет JS-сервиса: настройки — в localStorage, плейлисты и программа — в IndexedDB страницы, программа разбирается в воркере (код встроен в `app.js`, рядом — `epg-worker.js` на случай, если запуск из Blob запрещён). Серверы без CORS — только через прокси: открыть `http://127.0.0.1:8731/?proxy=http://127.0.0.1:47380` (с `npm run proxy` на ПК или свой сервер с тем же протоколом `/ping`, `/p?u=&h=`). Адрес прокси запоминается в браузере, `?proxy=` без адреса — забыть. Без прокси такие серверы дают ошибку с подсказкой, в «Настройки → Сеть» — «Прокси: не задан». Кнопки «С телефона» нет.
 
+## Выпуск и сайт perfect-tv.github.io
+
+Сайт: в корне — само приложение (сборка browser: браузер, VIDAA, Titan OS, MSX), страница «что это и как поставить на ТВ» — `/about/` (`site/about/index.html`, RU/EN). Собрать локально — `npm run build:site` → `site-out/`.
+
+Выпуск — тег `v<версия>` (как в `appinfo.json`), workflow `.github/workflows/release.yml`: тесты; `.ipk`, установщик для Windows, `.wgt` без подписи (Apps2Samsung подписывает под ТВ пользователя) — в релиз GitHub; сайт — в репозиторий `perfect-tv/perfect-tv.github.io` (ветка `main`, история не хранится). Тег не совпадает с версией — сборка останавливается. Только сайт, без релиза — Actions → release → Run workflow.
+
+```bash
+git tag v1.1.14 && git push origin v1.1.14
+```
+
+Один раз на GitHub:
+1. Создать публичный репозиторий `perfect-tv/perfect-tv.github.io` (пустой).
+2. Доступ на запись в него — одно из двух:
+   - ключ развёртывания (если их разрешает организация: Settings организации → Repository → Deploy keys): в `perfect-tv.github.io` Settings → Deploy keys → Add deploy key — открытый ключ (`~/.ssh/perfect-tv-site-deploy.pub`), «Allow write access»; в `perfect-tv-smart` секрет `SITE_DEPLOY_KEY` — закрытый ключ (`~/.ssh/perfect-tv-site-deploy`, целиком);
+   - или токен: Settings → Developer settings → Fine-grained tokens, владелец `perfect-tv`, только `perfect-tv.github.io`, Contents — Read and write; в `perfect-tv-smart` секрет `SITE_TOKEN`.
+3. Секреты — в `perfect-tv/perfect-tv-smart`: Settings → Secrets and variables → Actions → New repository secret.
+4. Запустить workflow «release» (Actions → release → Run workflow — только сайт) или выпустить версию тегом.
+5. В `perfect-tv.github.io`: Settings → Pages → Source: Deploy from a branch, `main`, `/ (root)`.
+6. Свой домен (необязательно): переменная `SITE_CNAME` в `perfect-tv-smart` (Variables) и DNS-запись CNAME на `perfect-tv.github.io`.
+
 ## Samsung Tizen
 
 ```bash

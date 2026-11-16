@@ -8,3 +8,4 @@ __pycache__/
 dist-*/
 # Tizen Certificate Manager (Eclipse), если запущен из папки проекта
 workspace/
+site-out/

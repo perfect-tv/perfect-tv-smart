@@ -1,0 +1,89 @@
+# Выпуск по тегу v<версия> (версия — как в appinfo.json): тесты, сборка всех платформ, релиз на GitHub
+# и сайт https://perfect-tv.github.io (в корне — приложение для браузера, VIDAA, Titan OS, MSX;
+# /about/ — как поставить на ТВ).
+#   Релиз: top.rootu.perfecttv_<версия>_all.ipk (LG), PerfectTV-Installer-<версия>.zip (установщик LG
+#   для Windows), PerfectTV-<версия>.wgt (Samsung, без подписи — подписывает Apps2Samsung под ТВ).
+#   Сайт публикуется в perfect-tv/perfect-tv.github.io (ветка main) секретом SITE_TOKEN
+#   (fine-grained токен: только perfect-tv.github.io, Contents — Read and write) или SITE_DEPLOY_KEY.
+#   Свой домен — переменная репозитория SITE_CNAME.
+# Вручную (Actions → release → Run workflow) — только сайт из выбранной ветки, без релиза.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/tv-installer/go.mod
+          cache-dependency-path: tools/tv-installer/go.sum
+      - run: npm ci
+      - run: npm test
+
+      - name: Версия = тег
+        id: ver
+        run: |
+          V=$(node -p "require('./appinfo.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$V" ]; then
+            echo "Тег $GITHUB_REF_NAME не совпадает с версией appinfo.json ($V)" >&2; exit 1
+          fi
+
+      - name: LG webOS — .ipk и установщик
+        if: github.ref_type == 'tag'
+        run: |
+          npm run package
+          npm run installer
+
+      - name: Samsung Tizen — .wgt без подписи
+        if: github.ref_type == 'tag'
+        run: |
+          npm run build:tizen
+          rm -f dist-tizen/*signature*.xml dist-tizen/.manifest.tmp
+          (cd dist-tizen && zip -q -r "../out/PerfectTV-${{ steps.ver.outputs.version }}.wgt" .)
+
+      - name: Сайт
+        run: npm run build:site
+        env:
+          SITE_CNAME: ${{ vars.SITE_CNAME }}
+
+      - name: Релиз
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Perfect TV ${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          files: |
+            out/top.rootu.perfecttv_${{ steps.ver.outputs.version }}_all.ipk
+            out/PerfectTV-Installer-${{ steps.ver.outputs.version }}.zip
+            out/PerfectTV-${{ steps.ver.outputs.version }}.wgt
+
+      - name: Публикация сайта
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.SITE_DEPLOY_KEY }}
+          personal_token: ${{ secrets.SITE_TOKEN }}
+          external_repository: perfect-tv/perfect-tv.github.io
+          publish_branch: main
+          publish_dir: ./site-out
+          force_orphan: true
+          user_name: perfect-tv-bot
+          user_email: perfect-tv-bot@users.noreply.github.com
+          commit_message: Perfect TV ${{ steps.ver.outputs.version }} (${{ github.sha }})

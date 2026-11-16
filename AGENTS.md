@@ -4,7 +4,7 @@
 
 ## Команды
 
-- `npm run build` — сборка webOS в `dist/` (ES5, проверка парсером); `npm run dev` — то же с пересборкой при изменениях. `npm run build:browser` / `dev:browser` — сборка для браузера (VIDAA, Titan OS, MSX) в `dist-browser/` (README, «Проверка в браузере»); `npm run build:tizen` — Samsung в `dist-tizen/`, `npm run package:tizen` — `.wgt` (нужен Tizen Studio).
+- `npm run build` — сборка webOS в `dist/` (ES5, проверка парсером); `npm run dev` — то же с пересборкой при изменениях. `npm run build:browser` / `dev:browser` — сборка для браузера (VIDAA, Titan OS, MSX) в `dist-browser/` (README, «Проверка в браузере»); `npm run build:tizen` — Samsung в `dist-tizen/`, `npm run package:tizen` — `.wgt` (нужен Tizen Studio). `npm run build:site` — сайт perfect-tv.github.io в `site-out/` (в корне — приложение, `/about/` — инструкции) (публикует `.github/workflows/release.yml` по тегу `v<версия>` вместе с релизом `.ipk`/установщик/`.wgt`, README «Выпуск и сайт»).
 - `npm test` — юнит-тесты (vitest): M3U, XMLTV, шаблоны архива, сопоставление, клавиши, ячейки, строки.
 - `npm run typecheck` — проверка типов.
 - `npm run proxy` — локальный прокси на ПК (для браузера и симулятора).

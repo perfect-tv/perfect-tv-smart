@@ -9,6 +9,7 @@
     "build:browser": "node tools/build.mjs --platform browser",
     "dev:browser": "node tools/build.mjs --platform browser --watch",
     "build:tizen": "node tools/build.mjs --platform tizen",
+    "build:site": "node tools/build-site.mjs",
     "package:tizen": "node tools/build.mjs --platform tizen && tools/package-tizen.sh",
     "proxy": "node service/proxy.js",
     "test": "vitest run",
