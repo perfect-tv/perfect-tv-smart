@@ -1,5 +1,5 @@
 /*
- * Приложение в эмуляторе webOS через DevTools (порт 9998): node tools/emu-cdp.js
+ * Приложение в эмуляторе через DevTools (порт 9998 — webOS; другой — CDP_PORT=…, напр. Tizen после sdb forward): node tools/emu-cdp.js
  *   eval '<выражение>'                 — выполнить в странице (Chrome 53: Promise не ждёт — класть результат в window)
  *   shot файл.png                      — снимок экрана приложения (webOS 4; на webOS 3 — screendump QEMU)
  *   key <keyCode> [n]                  — нажать клавишу n раз (461 — Назад, 37–40 — стрелки, 13 — OK, 33/34 — PG±)
@@ -14,7 +14,7 @@
 const OUT = process.env.EMU_OUT || require('os').tmpdir() + '/';
 const [cmd, arg, arg2] = process.argv.slice(2);
 (async () => {
-  const pages = await (await fetch('http://127.0.0.1:9998/json')).json();
+  const pages = await (await fetch('http://127.0.0.1:' + (process.env.CDP_PORT || 9998) + '/json')).json();
   const ws = new WebSocket(pages[0].webSocketDebuggerUrl);
   let id = 0; const wait = {};
   ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && wait[d.id]) { wait[d.id](d); delete wait[d.id]; } else if (cmd === 'logs' && d.method === 'Console.messageAdded') console.log(d.params.message.text); };

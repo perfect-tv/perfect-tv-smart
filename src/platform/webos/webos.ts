@@ -35,6 +35,7 @@ export const WebOS: PlatformApi = {
   proxy: WebosProxy,
   epg: WebosEpg,
   qr: WebosQr,
+  nativePlayer: null,
   storageBytes: function () {
     return SocketDb.available().then(function (ok) { return ok ? SocketDb.storageBytes() : -1; });
   },

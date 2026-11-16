@@ -26,10 +26,11 @@ export const OK_LONG_PRESS = 800;
 /** Удержание ↑/↓, мс: через DELAY, интервал от START до MIN за RAMP; GAP — keyup потерялся */
 export const Hold = { DELAY: 350, START: 90, MIN: 35, RAMP: 1500, GAP: 700 };
 
-/** Коды клавиш: пульт LG (webOS) и клавиатура (для проверки в браузере) */
+/** Коды клавиш: пульты LG (webOS) и Samsung (Tizen), клавиатура (для проверки в браузере) */
 const NAMES: { [code: number]: string } = {
   37: 'left', 38: 'up', 39: 'right', 40: 'down',
-  33: 'pgup', 34: 'pgdown', // CH+ / CH−, Page Up / Down
+  33: 'pgup', 34: 'pgdown', // CH+ / CH− (LG), Page Up / Down
+  427: 'pgup', 428: 'pgdown', // CH+ / CH− (Samsung)
 };
 
 export function isOk(code: number) { return code === 13; }
@@ -55,8 +56,10 @@ export function media(code: number): string | null {
     case 404: return 'green';
     case 405: return 'yellow';
     case 406: return 'blue';
-    case 77: case 93: return 'menu';         // M, клавиша контекстного меню
-    case 72: return 'history';               // H
+    case 77: case 93: case 10135: return 'menu'; // M, клавиша контекстного меню, Tools (Samsung)
+    case 10073: return 'guide';              // Channel List (Samsung)
+    case 10225: return 'search';             // Search (Samsung)
+    case 72: case 10190: return 'history';   // H, Previous Channel (Samsung)
     case 70: return 'search';                // F
     default: return null;
   }

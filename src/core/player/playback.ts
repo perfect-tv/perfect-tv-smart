@@ -1,6 +1,9 @@
+import { platform } from '../platform';
+
 /**
  * Воспроизведение (docs/TZ.md, §8): один <video> на всё время; HLS — hls.js (MSE), остальное
- * и запасной вариант — встроенный плеер webOS (video.src).
+ * и запасной вариант — встроенный плеер телевизора: video.src или свой плеер платформы
+ * (PlatformApi.nativePlayer — на Tizen AVPlay), тогда engine === 'native' и всё идёт в него.
  *
  * Время: «окно» — доступный для перемотки отрезок потока (seekable). Для HLS с
  * #EXT-X-PROGRAM-DATE-TIME известна эпоха медиа-времени 0 (pdtBase, мс): время кадра —
@@ -15,6 +18,24 @@ export interface PlayOpts {
   native: boolean;
   /** Тип: 'hls' — заведомо HLS (ссылка без расширения) */
   forceHls?: boolean;
+  /** Заголовки канала, если ссылка не через прокси (их умеет поставить только плеер платформы) */
+  headers?: { [k: string]: string } | null;
+}
+
+/** Встроенный плеер платформы вместо video.src (AVPlay на Tizen): рисует видео сам, под интерфейсом */
+export interface NativeEngine {
+  play(url: string, opts: PlayOpts, audioLang: string): void;
+  stop(): void;
+  pause(): void;
+  resume(): void;
+  readonly paused: boolean;
+  /** Медиа-время, мс */
+  readonly positionMs: number;
+  readonly height: number;
+  readonly live: boolean;
+  tracks(): Track[];
+  selectTrack(t: Track | null, kind: 'audio' | 'text'): void;
+  setAspect(mode: number): void;
 }
 
 export interface Track { id: number; kind: 'audio' | 'text'; lang: string; label: string; selected: boolean }
@@ -46,6 +67,8 @@ export class Playback {
   private isLive = false;
   private recovered = 0;
   private stallTimer = 0;
+  /** Свой плеер платформы (null — встроенный — это video.src) */
+  private ext: NativeEngine | null = null;
   url = '';
   engine: 'hls' | 'native' | '' = '';
   /** Звук и субтитры выбранные пользователем */
@@ -55,6 +78,8 @@ export class Playback {
   constructor(video: HTMLVideoElement, l: PlaybackListener) {
     this.video = video;
     this.l = l;
+    const np = platform().nativePlayer;
+    this.ext = np ? np(l) : null;
     const v = video;
     const self = this;
     v.addEventListener('playing', function () { self.l.onState(true, false); self.fireReady(); });
@@ -89,6 +114,10 @@ export class Playback {
     if (hlsUrl && !opts.native && Playback.hlsSupported()) {
       this.engine = 'hls';
       this.startHls(url, opts.fromStart);
+    } else if (this.ext) {
+      this.engine = 'native';
+      this.ext.play(url, opts, this.audioLang);
+      return;
     } else {
       this.engine = 'native';
       v.src = url;
@@ -153,8 +182,12 @@ export class Playback {
     this.l.onReady();
   }
 
+  /** Играет свой плеер платформы */
+  private get extOn(): boolean { return this.engine === 'native' && !!this.ext; }
+
   stop() {
     clearTimeout(this.stallTimer);
+    if (this.ext) this.ext.stop();
     if (this.hls) {
       try { this.hls.destroy(); } catch (e) { /* */ }
       this.hls = null;
@@ -168,12 +201,15 @@ export class Playback {
     this.engine = '';
   }
 
-  get paused(): boolean { return this.video.paused; }
-  pause() { this.video.pause(); }
-  resume() { const p: any = this.video.play(); if (p && p.catch) p.catch(function () { /* */ }); }
+  get paused(): boolean { return this.extOn ? this.ext!.paused : this.video.paused; }
+  pause() { if (this.extOn) this.ext!.pause(); else this.video.pause(); }
+  resume() {
+    if (this.extOn) { this.ext!.resume(); return; }
+    const p: any = this.video.play(); if (p && p.catch) p.catch(function () { /* */ });
+  }
 
   /** Медиа-время, мс */
-  get positionMs(): number { return this.video.currentTime * 1000; }
+  get positionMs(): number { return this.extOn ? this.ext!.positionMs : this.video.currentTime * 1000; }
 
   get bufferedAheadMs(): number {
     const v = this.video, b = v.buffered, t = v.currentTime;
@@ -190,7 +226,7 @@ export class Playback {
   get windowOffsetMs(): number { const s = this.video.seekable; return s.length ? s.start(0) * 1000 : 0; }
   get windowDurationMs(): number { const s = this.video.seekable; return s.length ? (s.end(s.length - 1) - s.start(0)) * 1000 : 0; }
   /** Поток «живой» (EVENT / эфир): плейлист дописывается */
-  get live(): boolean { return this.engine === 'hls' ? this.isLive : !isFinite(this.video.duration); }
+  get live(): boolean { return this.extOn ? this.ext!.live : this.engine === 'hls' ? this.isLive : !isFinite(this.video.duration); }
 
   /** Время кадра по PROGRAM-DATE-TIME, мс (null — нет) */
   get wallClockMs(): number | null {
@@ -211,6 +247,7 @@ export class Playback {
   // ---------------------------------------------------------------- дорожки
 
   tracks(): Track[] {
+    if (this.extOn) return this.ext!.tracks();
     const out: Track[] = [];
     const h = this.hls;
     if (!h) return out;
@@ -222,6 +259,9 @@ export class Playback {
   }
 
   selectTrack(t: Track | null, kind: 'audio' | 'text') {
+    if (kind === 'audio' && t) this.audioLang = t.lang;
+    if (kind === 'text') this.subtitleLang = t ? t.lang : '';
+    if (this.extOn) { this.ext!.selectTrack(t, kind); return; }
     const h = this.hls;
     if (!h) return;
     if (kind === 'audio' && t) { h.audioTrack = t.id; this.audioLang = t.lang; }
@@ -243,9 +283,10 @@ export class Playback {
 
   /** Формат кадра: 0 — вписать, 1 — растянуть, 2 — увеличить */
   setAspect(mode: number) {
+    if (this.ext) this.ext.setAspect(mode);
     const st: any = this.video.style;
     st.objectFit = mode === 1 ? 'fill' : mode === 2 ? 'cover' : 'contain';
   }
 
-  get height(): number { return this.video.videoHeight || 0; }
+  get height(): number { return this.extOn ? this.ext!.height : this.video.videoHeight || 0; }
 }

@@ -93,6 +93,9 @@ async function build() {
   copy(path.join(root, 'node_modules/hls.js/dist/hls.min.js'), path.join(dist, 'hls.min.js'));
   copy(path.join(root, pdir, 'index.html'), path.join(dist, 'index.html'));
   if (platform === 'webos') copy(path.join(root, 'appinfo.json'), path.join(dist, 'appinfo.json'));
+  // Tizen: config.xml с версией из appinfo.json
+  const cfg = path.join(root, pdir, 'config.xml');
+  if (fs.existsSync(cfg)) fs.writeFileSync(path.join(dist, 'config.xml'), fs.readFileSync(cfg, 'utf8').replace(/@VERSION@/g, JSON.parse(fs.readFileSync(path.join(root, 'appinfo.json'), 'utf8')).version));
   copy(path.join(root, 'LICENSE'), path.join(dist, 'LICENSE'));   // GPL 3.0: текст лицензии — вместе с приложением
   for (const f of fs.readdirSync(path.join(root, 'assets'))) copy(path.join(root, 'assets', f), path.join(dist, f));
   console.log(`${path.relative(root, dist)}/app.js ${(app.length / 1024).toFixed(0)} KB${useWorker ? ` (из них воркер ${(workerJs.length / 1024).toFixed(0)} KB)` : ''}${serviceNote}, ${Date.now() - t0} ms`);

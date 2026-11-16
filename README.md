@@ -56,6 +56,52 @@ python3 -m http.server 8731 --bind 127.0.0.1 --directory dist-browser
 
 В ней нет JS-сервиса: настройки — в localStorage, плейлисты и программа — в IndexedDB страницы, программа разбирается в воркере (код встроен в `app.js`, рядом — `epg-worker.js` на случай, если запуск из Blob запрещён). Серверы без CORS — только через прокси: открыть `http://127.0.0.1:8731/?proxy=http://127.0.0.1:47380` (с `npm run proxy` на ПК или свой сервер с тем же протоколом `/ping`, `/p?u=&h=`). Адрес прокси запоминается в браузере, `?proxy=` без адреса — забыть. Без прокси такие серверы дают ошибку с подсказкой, в «Настройки → Сеть» — «Прокси: не задан». Кнопки «С телефона» нет.
 
+## Samsung Tizen
+
+```bash
+npm run build:tizen
+```
+
+`dist-tizen/` — приложение с `config.xml` (минимум Tizen 3.0). Без ТВ — открыть `dist-tizen` в браузере, как сборку browser (API `tizen`/`webapis` там нет — клавиши не регистрируются, выход — закрыть вкладку). Пакет `.wgt` — `npm run package:tizen` (`tools/package-tizen.sh`): нужен Tizen Studio (CLI `tizen`) с профилем сертификатов Samsung; на ТВ в режиме разработчика — `sdb connect <IP>`, `tizen install -n out/<пакет>.wgt -t <ТВ>`.
+
+Эмулятор (Tizen Studio 6.1 CLI в `~/tizen-studio`, пакеты `Emulator`, `TV-SAMSUNG-Public-Emulator` — Tizen TV 10.0, `TV-SAMSUNG-Extension-Tools`, `TV-SAMSUNG-Public-WebAppDevelopment`, `cert-add-on`, `Certificate-Manager`). Менеджер пакетов — с `LC_ALL=C`: в русской локали он не узнаёт уже стоящие системные пакеты (`libkchart2`, `rpm2cpio`) и останавливается.
+
+```bash
+~/tizen-studio/tools/emulator/bin/em-cli create -n ptv-tv10 -p tv-samsung-10.0-x86_64 -t "HD1080 TV"
+```
+
+```bash
+~/tizen-studio/tools/emulator/bin/em-cli launch -n ptv-tv10
+```
+
+Подпись: эмулятор Samsung TV (и ТВ) принимает только сертификат Samsung — обычный Tizen даёт «Invalid certificate chain», root на эмуляторе закрыт. Сертификат создаётся один раз в `~/tizen-studio/tools/certificate-manager/certificate-manager`: «+» → Samsung → TV → автор (вход в аккаунт Samsung) → дистрибьютор (Public; DUID запущенного эмулятора или ТВ добавляется сам). Профиль, например `samsung`, затем:
+
+```bash
+TIZEN_PROFILE=samsung npm run package:tizen
+```
+
+```bash
+~/tizen-studio/tools/ide/bin/tizen install -n PerfectTV-<версия>.wgt -t ptv-tv10 -- out
+```
+
+```bash
+~/tizen-studio/tools/ide/bin/tizen run -p PrfTVrootu.PerfectTV -t ptv-tv10
+```
+
+Отладка (DevTools): поставить пакет, запустить в режиме отладки и пробросить порт — `tools/tizen-debug.sh [цель]` (то же вручную — ниже), затем тот же `tools/emu-cdp.js` (`eval`, `logs`, `shot`, `key`) с `CDP_PORT=9224`. Хост ПК изнутри эмулятора — `10.0.2.2`. Видео AVPlay на снимке DevTools не видно (своя плоскость) — смотреть окно эмулятора.
+
+```bash
+~/tizen-studio/tools/sdb shell 0 kill PrfTVrootu; ~/tizen-studio/tools/sdb shell 0 debug PrfTVrootu.PerfectTV
+```
+
+```bash
+~/tizen-studio/tools/sdb forward tcp:9224 tcp:<порт из ответа>
+```
+
+```bash
+CDP_PORT=9224 node tools/emu-cdp.js logs
+```
+
 ## Симулятор webOS TV
 
 webOS TV Simulator (с сайта LG, для Linux — AppImage) JS-сервисы не запускает: держать `npm run proxy` на ПК — приложение найдёт прокси на `127.0.0.1:47380`.

@@ -6,3 +6,5 @@ out/
 tools/.flussonic_cache/
 __pycache__/
 dist-*/
+# Tizen Certificate Manager (Eclipse), если запущен из папки проекта
+workspace/

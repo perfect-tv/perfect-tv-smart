@@ -556,7 +556,8 @@ export class Tv {
     if (!ch) return;
     const h = ch.headers();
     let url = this.lastUrl;
-    if (this.viaProxy || Net.wantProxy(h)) url = Net.proxyUrl(url, h);
+    const proxied = this.viaProxy || Net.wantProxy(h);
+    if (proxied) url = Net.proxyUrl(url, h);
     const native = useNativeHls(Prefs.hlsEngine, this.state.archive !== null,
       this.nativeFallback, this.autoHlsFallback);
     this.streamStartedAt = Date.now();
@@ -566,6 +567,7 @@ export class Tv {
       native: native,
       // тип — по исходной ссылке: у ссылки через прокси (/p?u=…) расширения нет
       forceHls: this.forceHls || isHlsUrl(this.lastUrl),
+      headers: proxied ? null : h,
     });
   }
 

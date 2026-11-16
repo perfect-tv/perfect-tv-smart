@@ -1,6 +1,7 @@
 import type { RecordDb } from './data/db';
 import type { SourceMeta, WantedSet } from './data/loaders';
 import type { Resp, StreamOpts } from './net';
+import type { NativeEngine, PlaybackListener } from './player/playback';
 
 /**
  * Платформа — всё, чем телевизоры разных марок отличаются друг от друга (docs/TZ.md, §2 «Платформы»).
@@ -33,6 +34,8 @@ export interface PlatformApi {
   epg: EpgBackend | null;
   /** Плейлист с телефона по QR; null — кнопки нет */
   qr: QrInbox | null;
+  /** Свой встроенный плеер («плеер телевизора» в настройках); null — video.src */
+  nativePlayer: ((l: PlaybackListener) => NativeEngine) | null;
   /** Сколько занимают данные приложения, байт; −1 — неизвестно */
   storageBytes(): Promise<number>;
   /** Ключи строк, где слова зависят от платформы (страница «Сеть», ошибка «нужен прокси») */
@@ -119,6 +122,7 @@ const BARE: PlatformApi = {
   proxy: null,
   epg: null,
   qr: null,
+  nativePlayer: null,
   storageBytes: function () { return Promise.resolve(-1); },
   labels: SERVICE_LABELS,
 };
