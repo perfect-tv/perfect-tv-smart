@@ -1,5 +1,5 @@
 /*
- * Одноразовая передача URL плейлиста с телефона на телевизор.
+ * Одноразовая передача URL плейлиста (kind 'playlist') или программы XMLTV (kind 'epg') с телефона на телевизор.
  * Телефон подключается только к временной странице на LAN :47381.
  * Сетевой прокси (/p и /s) по-прежнему доступен исключительно на 127.0.0.1:47380.
  * ES5, Node.js 0.12+, без дополнительных пакетов.
@@ -39,7 +39,15 @@ function html(out, status, body) {
     '</style></head><body><main>' + body + '</main></body></html>');
 }
 
-function page(out, token) {
+function page(out, token, kind) {
+  if (kind === 'epg') {
+    return html(out, 200, '<h1>Perfect TV</h1><p>Введите адрес программы передач XMLTV (EPG). ' +
+      'Ссылка будет передана телевизору в вашей локальной сети.</p>' +
+      '<form action="/q/' + token + '" method="post" accept-charset="utf-8">' +
+      '<label for="url">Адрес программы XMLTV</label><input id="url" name="url" type="url" inputmode="url" ' +
+      'placeholder="https://example.com/epg.xml.gz" required maxlength="4096" autofocus>' +
+      '<button type="submit">Отправить на телевизор</button></form>');
+  }
   html(out, 200, '<h1>Perfect TV</h1><p>Введите адрес M3U/M3U8-плейлиста. ' +
     'Ссылка будет передана телевизору в вашей локальной сети.</p>' +
     '<form action="/q/' + token + '" method="post" accept-charset="utf-8">' +
@@ -59,7 +67,7 @@ function handler(req, out) {
   if (!m || !session || m[1] !== session.token || Date.now() >= session.expires) {
     return html(out, 404, '<h1>Ссылка недействительна</h1><p>Откройте новый QR-код в настройках Perfect TV.</p>');
   }
-  if (req.method === 'GET') return page(out, m[1]);
+  if (req.method === 'GET') return page(out, m[1], session.kind);
   if (req.method !== 'POST') return html(out, 405, '<h1>Метод не поддерживается</h1>');
   var body = '';
   req.on('data', function (chunk) {
@@ -70,12 +78,13 @@ function handler(req, out) {
     if (!session || m[1] !== session.token || Date.now() >= session.expires) return html(out, 404, '<h1>Время истекло</h1>');
     var fields = querystring.parse(body);
     var address = typeof fields.url === 'string' ? fields.url.trim() : '';
-    if (!validUrl(address)) return html(out, 400, '<h1>Неверный адрес</h1><p>Нужна ссылка http:// или https:// на плейлист.</p>');
+    if (!validUrl(address)) return html(out, 400, '<h1>Неверный адрес</h1><p>Нужна ссылка http:// или https://.</p>');
     var name = typeof fields.name === 'string' ? fields.name.trim().slice(0, 100) : '';
     session.url = address;
     session.name = name;
     html(out, 200, '<h1>Ссылка отправлена ✓</h1><p>Теперь вернитесь к телевизору. ' +
-      'Perfect TV добавит плейлист и начнёт загрузку каналов.</p>');
+      (session.kind === 'epg' ? 'Perfect TV добавит источник и загрузит программу.</p>' :
+        'Perfect TV добавит плейлист и начнёт загрузку каналов.</p>'));
   });
 }
 
@@ -139,7 +148,10 @@ function ensureServer(cb) {
   s.listen(PORT, '0.0.0.0', function () { finish(null); if (!session) shutdownIfIdle(); });
 }
 
-function create(cb) {
+/** create([kind,] cb): kind — 'playlist' (по умолчанию) или 'epg' — что спрашивает страница телефона */
+function create(kind, cb) {
+  if (typeof kind === 'function') { cb = kind; kind = 'playlist'; }
+  if (kind !== 'epg') kind = 'playlist';
   var ip = lanIp();
   if (!ip) return cb(new Error('TV LAN IPv4 address not found'));
   ensureServer(function (err) {
@@ -148,7 +160,7 @@ function create(cb) {
     if (session) { session = null; if (expireTimer) clearTimeout(expireTimer); expireTimer = null; }
     var token = crypto.randomBytes(16).toString('hex');
     var expires = Date.now() + EXPIRE_MS;
-    session = { token: token, url: '', name: '', expires: expires };
+    session = { token: token, url: '', name: '', expires: expires, kind: kind };
     expireTimer = setTimeout(function () { cancel(token); }, EXPIRE_MS);
     if (expireTimer.unref) expireTimer.unref();
     cb(null, { returnValue: true, url: 'http://' + ip + ':' + PORT + '/q/' + token,

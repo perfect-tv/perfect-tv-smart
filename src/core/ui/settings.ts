@@ -283,6 +283,7 @@ export class SettingsLayer implements Layer {
     const tv = this.tv;
     let layer: QrPlaylistLayer | null = null;
     layer = new QrPlaylistLayer(tv.ui, function (url, name) {
+      if (Net.blockedHttp(url)) { tv.remove(layer!); tv.toast.show(str('https_only_error')); return; }
       const existing = tv.repo.playlists().filter(function (p) { return p.url === url; });
       if (existing.length) {
         tv.toast.show(str('playlist_qr_exists'));
@@ -309,6 +310,7 @@ export class SettingsLayer implements Layer {
     ], [str('save'), str('cancel')], function (i, v) {
       if (i === 1) { tv.remove(layer!); return; }
       if (!v[0]) { tv.toast.show(str('enter_the_address')); return; }
+      if (Net.blockedHttp(v[0])) { tv.toast.show(str('https_only_error')); return; }
       tv.remove(layer!);
       self.changed = true;
       if (p) {
@@ -333,14 +335,30 @@ export class SettingsLayer implements Layer {
     const tv = this.tv;
     let layer: FormLayer | null = null;
     const labels = i >= 0 ? [str('save'), str('delete'), str('cancel')] : [str('add'), str('cancel')];
+    // адрес XMLTV с телефона по QR — где у платформы есть приём
+    if (platform().qr) labels.splice(labels.length - 1, 0, str('playlist_from_phone'));
+    const apply = function (url: string | null, del: boolean) {
+      if (!del && url && Net.blockedHttp(url)) { tv.toast.show(str('https_only_error')); return; }
+      if (del) p.userEpg.splice(i, 1);
+      else if (url) { if (i >= 0) p.userEpg[i] = url; else if (p.userEpg.indexOf(url) < 0) p.userEpg.push(url); }
+      if (p.epgMode === EPG_PLAYLIST && p.userEpg.length && !p.headerEpg.length) p.epgMode = EPG_BOTH;
+      tv.repo.savePlaylist(p).then(function () { self.refresh(); tv.repo.refreshEpg(p, false); });
+    };
     layer = new FormLayer(tv.ui, str('programme_source'), [{ label: str('xmltv_url'), value: i >= 0 ? p.userEpg[i] : '', type: 'url' }], labels, function (k, v) {
       const lab = labels[k];
       tv.remove(layer!);
       if (lab === str('cancel')) return;
-      if (lab === str('delete')) p.userEpg.splice(i, 1);
-      else if (v[0]) { if (i >= 0) p.userEpg[i] = v[0]; else p.userEpg.push(v[0]); }
-      if (p.epgMode === EPG_PLAYLIST && p.userEpg.length && !p.headerEpg.length) p.epgMode = EPG_BOTH;
-      tv.repo.savePlaylist(p).then(function () { self.refresh(); tv.repo.refreshEpg(p, false); });
+      if (lab === str('playlist_from_phone')) {
+        let q: QrPlaylistLayer | null = null;
+        q = new QrPlaylistLayer(tv.ui, function (url) {
+          tv.remove(q!);
+          apply(url, false);
+          tv.toast.show(str('epg_qr_added'));
+        }, function () { tv.remove(q!); }, 'epg');
+        tv.push(q);
+        return;
+      }
+      apply(v[0], lab === str('delete'));
     }, function () { tv.remove(layer!); });
     tv.push(layer);
   }

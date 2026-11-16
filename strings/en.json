@@ -541,5 +541,11 @@
  "web_proxy_unavailable": "Not responding",
  "web_storage": "Browser storage",
  "web_storage_sub": "Settings — localStorage, playlists and programme — IndexedDB of this page; OK — recheck",
- "web_need_proxy": "The server does not allow requests from web pages (CORS). Open the app with a proxy: ?proxy=http://host:port (npm run proxy or your own server)."
+ "web_need_proxy": "The server does not allow requests from web pages (CORS). Open the app with a proxy: ?proxy=http://host:port (npm run proxy or your own server).",
+ "playlist_qr_hint_rtc": "The phone needs internet; the link goes straight to the TV. Best on the same Wi-Fi. The code works for 5 minutes.",
+ "epg_qr_title": "Programme guide from phone",
+ "epg_qr_description": "Scan the QR code with your phone, open the page and send the XMLTV (EPG) address.",
+ "epg_qr_added": "Programme address received",
+ "https_only_note": "Only https:// addresses are supported: the app is open over HTTPS, and the browser does not load http:// (playlist, programme guide, channels) — that needs a proxy (?proxy=…).",
+ "https_only_error": "Only https:// is supported here: the app is open over HTTPS and the browser blocks http://. Use an https:// address or a proxy (?proxy=…)."
 }

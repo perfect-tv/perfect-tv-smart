@@ -1,5 +1,5 @@
 import { str } from '../lang';
-import { platform } from '../platform';
+import { platform, QrKind } from '../platform';
 import { el, setText } from './dom';
 import { PopupLayer } from './popups';
 import { drawQr } from './qrcode';
@@ -9,15 +9,17 @@ import { U } from './u';
 export class QrPlaylistLayer extends PopupLayer {
   private status: HTMLElement;
   private address: HTMLElement;
+  private hint: HTMLElement;
   private qr: HTMLCanvasElement;
   private token = '';
   private closed = false;
   private timer = 0;
 
-  constructor(parent: HTMLElement, private onPlaylist: (url: string, name: string) => void, private onClose: () => void) {
+  /** kind 'epg' — ждём адрес программы XMLTV (onPlaylist получит его, название пустое) */
+  constructor(parent: HTMLElement, private onPlaylist: (url: string, name: string) => void, private onClose: () => void, private kind: QrKind = 'playlist') {
     super(parent, 50, 0.82);
-    this.head(null, str('playlist_qr_title'));
-    el('div', 'sub', str('playlist_qr_description'), this.win);
+    this.head(null, str(kind === 'epg' ? 'epg_qr_title' : 'playlist_qr_title'));
+    el('div', 'sub', str(kind === 'epg' ? 'epg_qr_description' : 'playlist_qr_description'), this.win);
     const area = el('div', '', null, this.win);
     area.style.cssText = 'text-align:center;height:' + U.px(21) + 'px';
     this.qr = document.createElement('canvas');
@@ -27,7 +29,8 @@ export class QrPlaylistLayer extends PopupLayer {
     this.status.style.cssText = 'padding-top:1rem;font-size:1.25rem';
     this.address = el('div', '', '', this.win);
     this.address.style.cssText = 'text-align:center;font-size:1.2rem;overflow-wrap:break-word;word-break:break-all;color:#ddd';
-    el('div', 'sub', str('playlist_qr_hint'), this.win).style.cssText = 'margin-top:1.2rem;text-align:center';
+    this.hint = el('div', 'sub', str('playlist_qr_hint'), this.win);
+    this.hint.style.cssText = 'margin-top:1.2rem;text-align:center';
     const self = this;
     this.buttons([str('cancel')], function () { self.back(); });
     this.start();
@@ -37,9 +40,10 @@ export class QrPlaylistLayer extends PopupLayer {
     const self = this;
     const qr = platform().qr;
     if (!qr) { setText(this.status, str('playlist_qr_error')); return; }
-    qr.open().then(function (d) {
+    qr.open(this.kind).then(function (d) {
       if (self.closed) { qr.cancel(d.token); return; }
       self.token = d.token;
+      if (d.hint) setText(self.hint, str(d.hint));
       try { drawQr(self.qr, d.url); } catch (e) {
         setText(self.status, str('playlist_qr_error'));
         return;
@@ -67,7 +71,7 @@ export class QrPlaylistLayer extends PopupLayer {
         self.closed = true;
         self.cancelRemote();
         self.onClose();
-        self.onPlaylist(got.url, got.name || str('playlist'));
+        self.onPlaylist(got.url, self.kind === 'epg' ? '' : got.name || str('playlist'));
         return;
       }
       self.timer = window.setTimeout(function () { self.poll(); }, 1200);

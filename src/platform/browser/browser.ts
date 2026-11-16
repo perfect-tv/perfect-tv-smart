@@ -1,3 +1,4 @@
+import { RtcQr, rtcAvailable } from '../../core/qrrtc';
 import { PlatformApi } from '../../core/platform';
 import { IdbDb } from '../../core/data/idb';
 import { BrowserKv } from './kv';
@@ -31,7 +32,8 @@ export const Browser: PlatformApi = {
   db: IdbDb,
   proxy: proxy,
   epg: null,
-  qr: null,
+  // QR — через WebRTC (страница perfect-tv.github.io/send/), если он есть
+  qr: rtcAvailable() ? RtcQr : null,
   nativePlayer: null,
   storageBytes: webStorageBytes,
   labels: WEB_LABELS,

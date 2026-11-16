@@ -74,6 +74,16 @@ export function proxyPath(base: string, url: string, headers?: { [k: string]: st
 }
 
 export const Net = {
+  /**
+   * Страница открыта по HTTPS и прокси нет: браузер не пустит на http:// (смешанное содержимое) —
+   * ни плейлист, ни программу, ни потоки каналов. Так у сборки browser с сайта perfect-tv.github.io.
+   */
+  httpsOnly(): boolean {
+    return typeof location !== 'undefined' && location.protocol === 'https:' && !Net.proxyAvailable;
+  },
+  /** Адрес http://, который при httpsOnly() не загрузить */
+  blockedHttp(url: string): boolean { return Net.httpsOnly() && /^http:\/\//i.test(url); },
+
   /** HTTP-прокси платформы работает (адреса proxyUrl годятся) */
   get proxyAvailable() { const p = platform().proxy; return !!p && p.available; },
   /** Проверка прокси уже была (или прокси нет вовсе) */

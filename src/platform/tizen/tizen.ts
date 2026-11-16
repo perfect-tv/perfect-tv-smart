@@ -1,3 +1,4 @@
+import { RtcQr, rtcAvailable } from '../../core/qrrtc';
 import { PlatformApi } from '../../core/platform';
 import { IdbDb } from '../../core/data/idb';
 import { BrowserKv } from '../browser/kv';
@@ -80,7 +81,8 @@ export const Tizen: PlatformApi = {
   db: IdbDb,
   proxy: null,
   epg: null,
-  qr: null,
+  // QR — через WebRTC (страница perfect-tv.github.io/send/)
+  qr: rtcAvailable() ? RtcQr : null,
   get nativePlayer() { return avplayAvailable() ? createAvplay : null; },
   storageBytes: webStorageBytes,
   labels: WEB_LABELS,

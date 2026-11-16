@@ -94,9 +94,12 @@ export interface EpgBackend {
   search(words: string[], items: any[], max: number, cancelled: () => boolean): Promise<any[]>;
 }
 
+/** Что спрашивает страница телефона: плейлист (адрес и название) или программу XMLTV (адрес) */
+export type QrKind = 'playlist' | 'epg';
+
 export interface QrInbox {
-  /** Временная страница для телефона: адрес для QR и метка ожидания */
-  open(): Promise<{ url: string; token: string }>;
+  /** Временная страница для телефона: адрес для QR, метка ожидания, подсказка (ключ строки) */
+  open(kind?: QrKind): Promise<{ url: string; token: string; hint?: string }>;
   /** Ссылку уже прислали — {url, name}; ещё нет — null; ошибка/истекло — отказ */
   poll(token: string): Promise<{ url: string; name: string } | null>;
   cancel(token: string): void;

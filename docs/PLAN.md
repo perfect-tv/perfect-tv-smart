@@ -367,3 +367,16 @@ JS-профиль за 20 с переключений — 97% простоя: в
 
 `https://perfect-tv.github.io/` — сразу приложение (сборка browser), `/about/` (`site/about/index.html`, RU/EN по языку браузера, переключатель) — LG (установщик из релиза), Samsung (Apps2Samsung), браузер/VIDAA/Titan/MSX, Android, Telegram, Boosty, GitHub. `tools/build-site.mjs` → `site-out/` (сборка browser в корне + `site/` + `.nojekyll` + `version.json`, `CNAME` по `SITE_CNAME`). `.github/workflows/release.yml`: тег `v<версия>` → тесты, `.ipk`, установщик, `.wgt` без подписи — в релиз GitHub, сайт — в `perfect-tv/perfect-tv.github.io` (секрет `SITE_TOKEN` или `SITE_DEPLOY_KEY`); вручную — только сайт. Настройка — README «Выпуск и сайт».
 - Не сделано: манифест обновлений `/update/`, стартовый JSON для MSX. Релизы — с первого тега (до этого releases/latest пуст).
+
+## QR-ввод плейлиста через WebRTC (2026-11-16)
+
+Для browser и Tizen (нет сервиса на ТВ): `src/core/qrrtc.ts` (`RtcQr`), страница телефона `site/send/index.html` (RU/EN) → `perfect-tv.github.io/send/`. Сигнализация — ntfy.sh (WebSocket-подписка на свою тему, POST `?cache=no`), STUN Google; ссылка — по каналу данных WebRTC. Подсказка в окне QR — от способа приёма (`QrInbox.open` → `hint`). На webOS не подключено: там QR — страница сервиса.
+- Chrome (две вкладки панели браузера: приложение и страница телефона): QR → «Отправить на ТВ» → «Готово», ТВ добавил и открыл плейлист (20 каналов).
+- Эмулятор webOS 3 (Chromium 38, `webkitRTCPeerConnection`, вызовы с callback): два соединения в одной странице — канал данных, сообщение и ответ проходят. Сигнализацию на эмуляторах не проверить: у них нет выхода в интернет.
+- Ошибки по пути: облачный PeerJS закрывал соединение на любой OFFER/LEAVE — заменён на ntfy; смешение Promise и callback в новом Chrome давало пустое описание — разведено по наличию `RTCPeerConnection` без префикса.
+- Не проверено: настоящий телефон и ТВ в одной сети Wi-Fi, Tizen-эмулятор (нет интернета), разные сети (только STUN, без TURN).
+
+## QR для EPG и «только HTTPS» (2026-11-16)
+
+- «Источник программы» → «С телефона (QR)»: `QrPlaylistLayer` с видом `epg`, `QrInbox.open(kind)`; WebRTC — `.e` в адресе страницы телефона; webOS — `service/qr.js` `create('epg')`, форма без названия (`tools/test-qr.js` проверяет). Проверено в браузере: адрес XMLTV с «телефона» попал в источники плейлиста.
+- `Net.httpsOnly()` / `blockedHttp()`: на странице по HTTPS без прокси `http://` не принимается и это сказано прямо (окно первого запуска, тосты, текст ошибки, страница телефона с `.s`, `/about/`). Тест `https-only.test.ts`. В браузере проверена только страница телефона с `.s` (локальный сервер — http); само приложение по HTTPS — после публикации.

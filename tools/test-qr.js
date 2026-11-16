@@ -40,8 +40,17 @@ proxy.start(47380, function (err) {
               return fetch('http://127.0.0.1:47380/qr/status?token=' + s.token);
             }).then(function (gone) {
               assert.strictEqual(JSON.parse(gone.body).returnValue, false);
-              console.log('QR service: полный цикл пройден (форма, валидация, приём, отмена)');
-              process.exit(0);
+              // программа (EPG): своя форма — без названия
+              return fetch('http://127.0.0.1:47380/qr/new?kind=epg').then(function (r2) {
+                var e = JSON.parse(r2.body);
+                return fetch('http://127.0.0.1:47381/q/' + e.token);
+              }).then(function (epgHtml) {
+                assert.strictEqual(epgHtml.code, 200);
+                assert(epgHtml.body.indexOf('XMLTV') >= 0);
+                assert(epgHtml.body.indexOf('name="name"') < 0);
+                console.log('QR service: полный цикл пройден (форма, валидация, приём, отмена, форма EPG)');
+                process.exit(0);
+              });
             });
           });
         });

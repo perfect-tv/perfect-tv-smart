@@ -226,6 +226,8 @@ export class Tv {
 
   errorText(code: string): string {
     if (code === 'no_url') return str('enter_the_address');
+    // страница по HTTPS без прокси, плейлист по http:// — браузер не пускает (смешанное содержимое)
+    if (code === 'network' && this.playlist && Net.blockedHttp(this.playlist.url)) return str('https_only_error');
     if (code === 'network') return str('no_connection_to_the_server');
     if (code === 'format') return str('the_file_does_not_look_like_an_m3u');
     if (code === 'empty') return str('the_playlist_has_no_channels');
@@ -282,9 +284,10 @@ export class Tv {
       if (i === buttons.length - 1) { self.remove(layer!); self.openSettings(); return; }
       if (hasQr && i === 1) { self.wizardQr(function () { self.remove(layer!); }); return; }
       if (!v[0]) { self.toast.show(str('enter_the_address')); return; }
+      if (Net.blockedHttp(v[0])) { self.toast.show(str('https_only_error')); return; }
       self.remove(layer!);
       self.repo.addPlaylist(v[1] || str('playlist'), v[0]).then(function (p) { self.open(p); });
-    }, function () { self.exitRequest(); }, str('wizard_note'), {
+    }, function () { self.exitRequest(); }, str('wizard_note') + (Net.httpsOnly() ? ' ' + str('https_only_note') : ''), {
       label: 'Language:',
       button: cur ? cur.name : lang(),
       action: function () { self.chooseLanguage(function () { const v = layer!.values(); self.remove(layer!); self.wizard(v, true); }); },
@@ -298,6 +301,7 @@ export class Tv {
     let layer: QrPlaylistLayer | null = null;
     layer = new QrPlaylistLayer(this.ui, function (url, name) {
       self.remove(layer!);
+      if (Net.blockedHttp(url)) { self.toast.show(str('https_only_error')); return; }
       closeWizard();
       self.repo.addPlaylist(name || str('playlist'), url).then(function (p) { self.open(p); }, function () { self.toast.show(str('playlist_qr_save_error')); self.wizard(); });
     }, function () { self.remove(layer!); });

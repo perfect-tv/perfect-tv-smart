@@ -24,12 +24,12 @@ function get(path: string): Promise<QrResponse> {
 }
 
 export const WebosQr: QrInbox = {
-  open() {
+  open(kind) {
     return WebosProxy.check().then(function (ok) {
       // по Luna страница для телефона не работает — ей нужен HTTP-порт
       if (!ok && WebosProxy.luna) { const e: any = new Error(str('playlist_qr_no_http')); e.whole = true; throw e; }
       if (!ok) throw new Error(str('proxy_absent'));
-      return get('new');
+      return get(kind === 'epg' ? 'new?kind=epg' : 'new');
     }).then(function (d) {
       if (!d.returnValue || !d.url || !d.token) throw new Error(d.error || 'service unavailable');
       return { url: d.url, token: d.token };
