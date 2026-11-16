@@ -3,7 +3,7 @@ import { Anim, el, icon, toggle } from './dom';
 import { Layer } from './layer';
 import { Logos } from './logos';
 import { Scroller } from './popups';
-import { U } from './u';
+import { C, U } from './u';
 
 export interface MenuTile { icon: string; title: string; run: () => void }
 export interface MenuItem {
@@ -78,7 +78,7 @@ export class MenuLayer implements Layer {
     }
     // пункты — на всю оставшуюся высоту шторки (в крупных размерах интерфейса прокручиваются)
     const used = body.getBoundingClientRect().top - d.getBoundingClientRect().top + body.offsetHeight;
-    this.scroller = new Scroller(body, Math.max(U.px(10), U.h - used - U.px(1.6)), 'rgba(30,31,32,.94)');
+    this.scroller = new Scroller(body, Math.max(U.px(10), U.h - used - U.px(1.6)), C.POPUP);
     const inner = this.scroller.inner;
     for (let s = 0; s < page.sections.length; s++) {
       const sec = page.sections[s];

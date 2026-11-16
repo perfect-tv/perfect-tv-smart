@@ -8,7 +8,7 @@ import { Fmt } from './fmt';
 import { Layer } from './layer';
 import { Logos } from './logos';
 import { keycap } from './widgets';
-import { U } from './u';
+import { C, U } from './u';
 
 /**
  * Окно по центру поверх затемнения. widthEm — ширина в em (не шире 90% экрана),
@@ -110,7 +110,7 @@ export class Scroller {
 
   /**
    * Сдвиг списка. Плавно (120 мс) — только редкие сдвиги: при листании подряд (чаще раза в 250 мс)
-   * и без «Плавных анимаций» — сразу. Каждая плавная прокрутка — 7–8 кадров пересборки экрана;
+   * и в облегчённом интерфейсе — сразу. Каждая плавная прокрутка — 7–8 кадров пересборки экрана;
    * при удержании клавиши они шли почти непрерывно (настройки на эмуляторе webOS 4 — 156% ядра у
    * сборки экрана).
    */
@@ -168,7 +168,7 @@ export class ListLayer extends PopupLayer {
     } else {
       const max = U.h * 0.72;
       const h = Math.min(max, items.length * this.rowH);
-      this.scroller = new Scroller(this.win, h, 'rgba(30,31,32,.94)');
+      this.scroller = new Scroller(this.win, h, C.POPUP);
       const list = el('div', 'list', null, this.scroller.inner);
       const self = this;
       for (let i = 0; i < items.length; i++) {
@@ -249,7 +249,7 @@ export class DetailsLayer extends PopupLayer {
     this.head(ch, ch.title(), time);
     const t = el('div', '', title, this.win);
     t.style.cssText = 'font-size:1.8rem;font-weight:700;margin:0.4rem 0 0.8rem;line-height:2.3rem';
-    this.scroller = new Scroller(this.win, U.px(16), 'rgba(30,31,32,.94)');
+    this.scroller = new Scroller(this.win, U.px(16), C.POPUP);
     const d = el('div', 't85', desc || str('no_description'), this.scroller.inner);
     d.style.cssText = 'font-size:1.35rem;line-height:2rem;white-space:pre-line';
     const self = this;
@@ -281,7 +281,7 @@ export class HelpLayer extends PopupLayer {
   constructor(parent: HTMLElement, private onClose: () => void) {
     super(parent, 64, 0.86);
     this.head(null, str('controls'));
-    this.scroller = new Scroller(this.win, U.h * 0.86 - U.px(6), 'rgba(30,31,32,.94)');
+    this.scroller = new Scroller(this.win, U.h * 0.86 - U.px(6), C.POPUP);
     const col = this.scroller.inner;
     const text = HelpLayer.text();
     for (let i = 0; i < text.length; i++) {
@@ -578,7 +578,7 @@ export class LogLayer extends PopupLayer {
   constructor(parent: HTMLElement, private onClose: () => void) {
     super(parent, 90, 0.9);
     this.head(null, str('log'));
-    this.scroller = new Scroller(this.win, U.h * 0.9 - U.px(6), 'rgba(30,31,32,.94)');
+    this.scroller = new Scroller(this.win, U.h * 0.9 - U.px(6), C.POPUP);
     const pre = el('div', 't85', Log.lines().join('\n'), this.scroller.inner);
     pre.style.cssText = 'font-family:monospace;font-size:1.1rem;line-height:1.5rem;white-space:pre-wrap;word-break:break-all';
     this.scroller.scrollTo(1e9);

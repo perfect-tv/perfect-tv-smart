@@ -35,9 +35,30 @@ export const C = {
   LIVE: '#E53935',
   ARCHIVE: '#FFB84D',
   ON_ARCHIVE: '#201400',
+  /** Табличка номера на логотипе (Canvas) */
+  NUM_PLATE: 'rgba(26,27,28,0.78)',
   t: function (a: number) { return wa(a); },
   black: function (a: number) { return 'rgba(0,0,0,' + a + ')'; },
 };
+
+/**
+ * «Облегчённый интерфейс» без прозрачности (Prefs.lite 2): панели, окна и затемнения — сплошные,
+ * без градиентов и затемнения под окном; полупрозрачные заливки внутри непрозрачных панелей остаются.
+ * Слабому ТВ дорого смешивать полупрозрачные слои с видео.
+ */
+export function lite(): boolean { return Prefs.lite === 2; }
+const TRANSLUCENT = {
+  PANEL: C.PANEL, PANEL_CARD: C.PANEL_CARD, PANEL_CARD_ON: C.PANEL_CARD_ON, POPUP: C.POPUP,
+  OVERLAY: C.OVERLAY, SCRIM: C.SCRIM, GUIDE_TOP: C.GUIDE_TOP, GUIDE_BOTTOM: C.GUIDE_BOTTOM, NUM_PLATE: C.NUM_PLATE,
+};
+const SOLID: typeof TRANSLUCENT = {
+  PANEL: 'rgb(26,27,28)', PANEL_CARD: 'rgb(26,27,28)', PANEL_CARD_ON: 'rgb(26,27,28)', POPUP: 'rgb(30,31,32)',
+  OVERLAY: 'transparent', SCRIM: 'rgb(8,9,11)', GUIDE_TOP: 'rgb(12,13,14)', GUIDE_BOTTOM: 'rgb(12,13,14)', NUM_PLATE: 'rgb(26,27,28)',
+};
+function applyPalette() {
+  const p = lite() ? SOLID : TRANSLUCENT;
+  for (const k in p) (C as any)[k] = (p as any)[k];
+}
 
 export const RADIUS_S = 0.4;
 export const RADIUS = 0.6;
@@ -62,6 +83,7 @@ export const U = {
     U.em = hh / Prefs.screenEm;
     U.dpr = window.devicePixelRatio || 1;
     document.documentElement.style.fontSize = U.em + 'px';
+    applyPalette();
   },
 
   px(e: number): number { return e * U.em; },

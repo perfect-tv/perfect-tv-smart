@@ -6,7 +6,7 @@ import { Anim, el, icon, setText, visible } from './dom';
 import { Fmt } from './fmt';
 import { hintRow } from './widgets';
 import { Logos } from './logos';
-import { C, roundRect, U } from './u';
+import { C, lite, roundRect, U } from './u';
 
 export interface InfoModel {
   channel: Channel;
@@ -74,10 +74,7 @@ export class InfoPanel {
     root.id = 'info';
     root.style.display = 'none';
     this.el = root;
-    // затемнение — фоном самой панели: дочерний слой с z-index −1 поверх видео не рисуется
-    const fade = 'rgba(8,9,11,0) 0, rgba(8,9,11,.53) 2.8rem, rgba(8,9,11,.91) 5.6rem, rgba(8,9,11,.97) 100%';
-    root.style.background = '-webkit-linear-gradient(top,' + fade + ')';
-    root.style.background = 'linear-gradient(to bottom,' + fade + ')';
+    this.paintBackground();
 
     const top = el('div', 'top', null, root);
     this.logo = el('div', 'logo', null, top);
@@ -362,5 +359,17 @@ export class InfoPanel {
     Anim.hide(this.el);
   }
 
-  relabel() { this.badgesKey = ''; this.hintKey = ''; this.nextKey = ''; }
+  /**
+   * Затемнение — фоном самой панели: дочерний слой с z-index −1 поверх видео не рисуется.
+   * Облегчённый интерфейс без прозрачности — сплошной фон (верхний отступ меньше — style.ts LITE)
+   */
+  private paintBackground() {
+    const root = this.el;
+    if (lite()) { root.style.background = C.SCRIM; return; }
+    const fade = 'rgba(8,9,11,0) 0, rgba(8,9,11,.53) 2.8rem, rgba(8,9,11,.91) 5.6rem, rgba(8,9,11,.97) 100%';
+    root.style.background = '-webkit-linear-gradient(top,' + fade + ')';
+    root.style.background = 'linear-gradient(to bottom,' + fade + ')';
+  }
+
+  relabel() { this.paintBackground(); this.badgesKey = ''; this.hintKey = ''; this.nextKey = ''; }
 }

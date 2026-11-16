@@ -1,4 +1,4 @@
-import { C, FONT } from './u';
+import { C, FONT, lite } from './u';
 
 /**
  * Стили экранов (docs/design.md). Размеры — в rem: 1rem = 1 em = высота экрана / 48
@@ -7,6 +7,24 @@ import { C, FONT } from './u';
  */
 export function css(): string {
   const W = C.WHITE;
+  return base(W) + (lite() ? LITE : '');
+}
+
+/** Облегчённый интерфейс без прозрачности: сплошные фоны вместо градиентов (палитра — applyPalette в u.ts) */
+const LITE = `
+#menu-shade{display:none}
+.fade-top,.fade-bottom{display:none!important}
+#info{padding-top:2.4rem}
+`;
+
+let styleEl: HTMLStyleElement | null = null;
+/** Поставить или обновить стили (после смены настроек «Облегчённый интерфейс») */
+export function restyle() {
+  if (!styleEl) { styleEl = document.createElement('style'); document.head.appendChild(styleEl); }
+  styleEl.textContent = css();
+}
+
+function base(W: string): string {
   return `
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;overflow:hidden;background:#000;color:${W};font-family:${FONT};font-size:inherit;-webkit-user-select:none;user-select:none;cursor:default}
@@ -34,7 +52,7 @@ body.nocursor,body.nocursor *{cursor:none!important}
 .logo{position:relative;background:${C.FILL_SOFT};border-radius:0.4rem;overflow:hidden;-webkit-flex:none;flex:none;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center}
 .logo img{max-width:72%;max-height:72%;display:block}
 .logo .mono{font-weight:700;color:${W};font-size:1.6rem;letter-spacing:-0.02em}
-.logo .num{position:absolute;left:0;top:0;padding:0 0.3rem;min-width:1.4rem;height:1.5rem;line-height:1.5rem;font-size:1rem;font-weight:700;text-align:center;border-radius:0.4rem 0 0.4rem 0;background:rgba(26,27,28,.78);color:${C.t(0.9)}}
+.logo .num{position:absolute;left:0;top:0;padding:0 0.3rem;min-width:1.4rem;height:1.5rem;line-height:1.5rem;font-size:1rem;font-weight:700;text-align:center;border-radius:0.4rem 0 0.4rem 0;background:${C.NUM_PLATE};color:${C.t(0.9)}}
 .f .logo{background:${C.LOGO_PLATE}}
 
 /* набор номера */

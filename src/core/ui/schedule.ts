@@ -11,7 +11,7 @@ import { Layer } from './layer';
 import { Logos } from './logos';
 import { DetailsLayer, Scroller } from './popups';
 import type { Tv } from './tv';
-import { U } from './u';
+import { C, U } from './u';
 import { hintRow } from './widgets';
 
 interface Row {
@@ -89,8 +89,8 @@ export class ScheduleLayer implements Layer {
     this.panel.style.width = panelW + 'px';
     this.hints = el('div', 'hints abs', null, win);
     this.hints.style.cssText = 'left:1.5rem;bottom:1rem';
-    this.datesScroller = new Scroller(this.datesBox, bodyH, 'rgba(30,31,32,.94)');
-    this.scroller = new Scroller(this.listBox, bodyH, 'rgba(30,31,32,.94)');
+    this.datesScroller = new Scroller(this.datesBox, bodyH, C.POPUP);
+    this.scroller = new Scroller(this.listBox, bodyH, C.POPUP);
     this.tab = ch ? view : 1;
     if (ch) this.dw.reset(ch, tv.state.channel === ch ? tv.position() : Clock.now());
     const self = this;

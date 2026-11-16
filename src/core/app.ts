@@ -3,12 +3,15 @@ import { Log } from './log';
 import { platform } from './platform';
 import { Prefs } from './prefs';
 import { Storage2 } from './storage';
-import { css } from './ui/style';
+import { restyle } from './ui/style';
 import { Tv } from './ui/tv';
 import { U } from './ui/u';
 
 /** Интерфейс — после подготовки платформы и чтения настроек */
 function initUi() {
+  // настройки прочитаны: размер и «Облегчённый интерфейс» — уже свои
+  U.init();
+  restyle();
   const video = document.getElementById('video') as HTMLVideoElement;
   const ui = document.getElementById('ui') as HTMLElement;
   const tv = new Tv(video, ui);
@@ -55,9 +58,7 @@ function boot() {
   Log.install();
   console.log('platform', platform().label(), 'screen', window.innerWidth + 'x' + window.innerHeight);
   U.init();
-  const style = document.createElement('style');
-  style.textContent = css();
-  document.head.appendChild(style);
+  restyle();
   platform().boot().then(null, function (e) { console.error('platform boot', e); }).then(function () {
     return Storage2.bootstrap();
   }).then(function () {

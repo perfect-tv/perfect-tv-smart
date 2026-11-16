@@ -3,7 +3,7 @@ import { About, THIRD_PARTY } from '../about';
 import { el } from './dom';
 import { PopupLayer, Scroller } from './popups';
 import { drawQr } from './qrcode';
-import { U } from './u';
+import { C, U } from './u';
 
 /** Ссылка QR-кодом: на ТВ её не открыть — навести камеру телефона */
 export class QrLinkLayer extends PopupLayer {
@@ -34,7 +34,7 @@ export class LicensesLayer extends PopupLayer {
   constructor(parent: HTMLElement, private onClose: () => void) {
     super(parent, 56, 0.8);
     this.head(null, str('about_licenses'));
-    this.scroller = new Scroller(this.win, U.h * 0.8 - U.px(6), 'rgba(30,31,32,.94)');
+    this.scroller = new Scroller(this.win, U.h * 0.8 - U.px(6), C.POPUP);
     const col = this.scroller.inner;
     const block = function (title: string, lines: string[]) {
       el('div', 'gl', title, col).style.paddingLeft = '0';

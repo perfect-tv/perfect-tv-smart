@@ -62,7 +62,12 @@ export const Prefs = {
   /** Шапка гида: 0 — канал и передача, 1 — канал, 2 — скрыть */
   get guideHeader() { return int('guide_header', 0, 0, 2); }, set guideHeader(v: number) { put('guide_header', v); },
   get guideDesc() { return bool('guide_desc', false); }, set guideDesc(v: boolean) { put('guide_desc', v); },
-  get animations() { return bool('animations', true); }, set animations(v: boolean) { put('animations', v); },
+  /**
+   * «Облегчённый интерфейс»: 0 — выкл, 1 — без анимаций, 2 — без анимаций и прозрачности.
+   * Раньше была только «Плавные анимации» (animations): выключенная — это 1
+   */
+  get lite() { return int('lite', bool('animations', true) ? 0 : 1, 0, 2); }, set lite(v: number) { put('lite', v); },
+  get animations() { return Prefs.lite === 0; },
   get adaptiveSort() { return bool('adaptive_sort', false); }, set adaptiveSort(v: boolean) { put('adaptive_sort', v); },
   /** Вид гида: 0 — ТВ-гид, 1 — Каналы + программа, 2 — Категории + каналы, 3 — Каналы */
   get guideMode() { return int('guide_mode', 0, 0, 3); }, set guideMode(v: number) { put('guide_mode', v); },

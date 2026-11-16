@@ -9,7 +9,7 @@ import { Layer } from './layer';
 import { Logos } from './logos';
 import { Scroller } from './popups';
 import type { Tv } from './tv';
-import { U } from './u';
+import { C, U } from './u';
 import { hintRow } from './widgets';
 
 const RU = 0, EN = 1, SYM = 2;
@@ -69,7 +69,7 @@ export class SearchLayer implements Layer {
     right.style.cssText = 'left:' + (U.px(4 + 2.4) + leftW) + 'px;right:4rem;top:2.4rem;bottom:5rem';
     this.status = el('div', 't60', '', right);
     this.status.style.cssText = 'font-size:1.2rem;height:2.2rem';
-    this.resScroller = new Scroller(right, U.h - U.px(2.4 + 5 + 2.2), 'rgba(12,13,14,.97)');
+    this.resScroller = new Scroller(right, U.h - U.px(2.4 + 5 + 2.2), C.GUIDE_TOP);
     this.hints = el('div', 'hints abs', null, this.el);
     this.hints.style.cssText = 'left:4rem;bottom:2.4rem';
     this.setLang(this.kbLang);

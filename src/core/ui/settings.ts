@@ -20,6 +20,7 @@ import { LicensesLayer, QrLinkLayer } from './about';
 import { About } from '../about';
 import type { Tv } from './tv';
 import { U } from './u';
+import { restyle } from './style';
 import { hintRow } from './widgets';
 
 interface SItem {
@@ -408,7 +409,7 @@ export class SettingsLayer implements Layer {
       { name: str('guide_desc'), desc: str('guide_desc_sub'), values: [str('off'), str('on')], index: function () { return Prefs.guideDesc ? 1 : 0; }, pick: function (i) { Prefs.guideDesc = i === 1; } },
       { name: str('keyboard_layout'), values: [str('layout_standard'), str('layout_abc')], index: function () { return Prefs.keyboardAbc ? 1 : 0; }, pick: function (i) { Prefs.keyboardAbc = i === 1; } },
       { name: str('key_hints'), desc: str('a_row_at_the_bottom_of_the_pinned'), values: [str('off'), str('on')], index: function () { return Prefs.keyHints ? 1 : 0; }, pick: function (i) { Prefs.keyHints = i === 1; } },
-      { name: str('smooth_animations'), desc: str('turn_off_on_weak_boxes'), values: [str('off'), str('on')], index: function () { return Prefs.animations ? 1 : 0; }, pick: function (i) { Prefs.animations = i === 1; } },
+      { name: str('lite_interface'), desc: str('lite_interface_sub'), values: [str('off'), str('lite_no_animations'), str('lite_no_transparency')], index: function () { return Prefs.lite; }, pick: function (i) { Prefs.lite = i; U.init(); restyle(); self.tv.relabel(); } },
     ];
   }
 

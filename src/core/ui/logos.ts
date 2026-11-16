@@ -153,7 +153,7 @@ export const Logos = {
       const s = String(ch.num);
       const bw = c.measureText(s).width + U.px(0.6);
       const bh = U.px(Math.max(1.3, Math.min(1.6, h / U.em * 0.42)));
-      roundRect(c, l, t, l + bw, t + bh, rad, 'rgba(26,27,28,0.78)');
+      roundRect(c, l, t, l + bw, t + bh, rad, C.NUM_PLATE);
       c.fillStyle = C.t(0.9);
       c.textAlign = 'center';
       c.textBaseline = 'middle';

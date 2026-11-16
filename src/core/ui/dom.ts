@@ -27,7 +27,7 @@ export function clear(e: HTMLElement) {
   while (e.firstChild) e.removeChild(e.firstChild);
 }
 
-/** Плавные появления/скрытия (настройка «Плавные анимации») */
+/** Плавные появления/скрытия (настройка «Облегчённый интерфейс» — выкл.) */
 export const Anim = {
   get on() { return Prefs.animations; },
   show(e: HTMLElement) {

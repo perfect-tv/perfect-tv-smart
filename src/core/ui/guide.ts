@@ -12,7 +12,7 @@ import { Fmt } from './fmt';
 import { Layer } from './layer';
 import { Logos } from './logos';
 import type { Tv } from './tv';
-import { C, drawText, RADIUS_S, roundRect, strokeRoundRect, U } from './u';
+import { C, drawText, lite, RADIUS_S, roundRect, strokeRoundRect, U } from './u';
 
 /** Окно сетки — 2 часа, шаг 30 минут, линия «сейчас» на 25% */
 const SPAN = 2 * 3600;
@@ -635,6 +635,13 @@ export class GuideLayer implements Layer {
 
   private drawBackground() {
     const c = this.c, w = this.w, h = this.h;
+    if (lite()) {
+      // без прозрачности: сплошной фон; в видах с видео справа — только слева, справа видео как есть
+      c.fillStyle = C.GUIDE_TOP;
+      if (!this.progHidden || this.rv >= 0.99) { c.fillRect(0, 0, w, h); return; }
+      c.fillRect(0, 0, Math.min(this.padX + (this.catsFixed ? this.catW + U.em : 0) + this.chW + 1.5 * U.em, w * 0.7), h);
+      return;
+    }
     const g = c.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, C.GUIDE_TOP);
     g.addColorStop(0.4, 'rgba(12,13,14,0.86)');
@@ -1039,6 +1046,7 @@ export class GuideLayer implements Layer {
 
   /** Затемнение краёв списка поверх фона гида */
   private fadeEdges(l: number, t: number, r: number, b: number, top: boolean, bottom: boolean) {
+    if (lite()) return;
     const len = Math.min(3 * U.em, (b - t) / 3);
     const c = this.c;
     if (top) {
