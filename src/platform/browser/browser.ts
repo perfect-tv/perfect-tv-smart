@@ -20,9 +20,13 @@ export const Browser: PlatformApi = {
   boot: function () {
     return proxy.check().then(function () { /* */ });
   },
+  // Выход — в начало истории вкладки: там то, откуда приложение открыли (меню MSX по link:, страница
+  // ТВ). Само приложение историю не пишет. Открыто первым во вкладке — закрыть её
   exit: function () {
+    try {
+      if (history.length > 1) { history.go(1 - history.length); return; }
+    } catch (e) { /* */ }
     try { window.close(); } catch (e) { /* */ }
-    try { history.back(); } catch (e) { /* */ }
   },
   cursorVisible: Cursor.visible,
   onCursor: Cursor.on,

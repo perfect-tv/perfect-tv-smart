@@ -366,7 +366,8 @@ JS-профиль за 20 с переключений — 97% простоя: в
 ## Сайт perfect-tv.github.io (2026-11-16)
 
 `https://perfect-tv.github.io/` — сразу приложение (сборка browser), `/about/` (`site/about/index.html`, RU/EN по языку браузера, переключатель) — LG (установщик из релиза), Samsung (Apps2Samsung), браузер/VIDAA/Titan/MSX, Android, Telegram, Boosty, GitHub. `tools/build-site.mjs` → `site-out/` (сборка browser в корне + `site/` + `.nojekyll` + `version.json`, `CNAME` по `SITE_CNAME`). `.github/workflows/release.yml`: тег `v<версия>` → тесты, `.ipk`, установщик, `.wgt` без подписи — в релиз GitHub, сайт — в `perfect-tv/perfect-tv.github.io` (секрет `SITE_TOKEN` или `SITE_DEPLOY_KEY`); вручную — только сайт. Настройка — README «Выпуск и сайт».
-- Не сделано: манифест обновлений `/update/`, стартовый JSON для MSX. Релизы — с первого тега (до этого releases/latest пуст).
+- MSX: `site/msx/start.json` (стартовый параметр `perfect-tv.github.io` с замком HTTPS → меню `site/msx/menu.json`, его стартовое действие `link:` сразу открывает приложение; при возврате из ссылки MSX его не повторяет — остаётся меню с плиткой). Выход в сборке browser — `history.go(1 − длина истории)`: в начало вкладки, то есть в MSX; проверено в MSX в headless Chrome (меню, переход по `link:` после подтверждения — MSX по умолчанию спрашивает, «Settings → Validate Links», — возврат в меню без повторного запуска); стартовый параметр через Setup и настоящие ТВ не проверены.
+- Не сделано: манифест обновлений `/update/`. Релизы — с первого тега (до этого releases/latest пуст).
 
 ## QR-ввод плейлиста через WebRTC (2026-11-16)
 
