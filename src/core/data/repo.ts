@@ -1,12 +1,11 @@
-import { Clock } from '../core/clock';
-import { Net, PROXY } from '../core/net';
-import { lang, str } from '../core/lang';
-import { Prefs } from '../core/prefs';
+import { Clock } from '../clock';
+import { lang, str } from '../lang';
+import { platform } from '../platform';
+import { Prefs } from '../prefs';
 import { Bus } from './bus';
 import { Catalog } from './catalog';
 import { ChannelRecord, packChannels, unpackChannels, unpackProgramme } from './compact';
 import { Db, prefixRange } from './db';
-import { EpgService } from './epgservice';
 import { errorCode, Loaders, MapRecord, SourceMeta, SRC_ERROR, SRC_READY, WantedSet } from './loaders';
 import { RawChannel } from './m3u';
 import { Channel, epgUrlsOf, Playlist, Programme } from './models';
@@ -156,7 +155,7 @@ export class Repo {
       }).then(function () {
         // сопоставление с уже загруженными источниками — по новым каналам
         const urls = epgUrlsOf(p);
-        return Promise.all(urls.map(function (u) { return Loaders.rematch(u, self.wantedFor(u)); }));
+        return Promise.all(urls.map(function (u) { return rematch(u, self.wantedFor(u)); }));
       }).then(function () {
         delete self.mapFor[p.id];
         self.invalidateAll();
@@ -197,13 +196,11 @@ export class Repo {
             Bus.emit('progress', self.progress);
           };
           const onPack = function () { self.invalidate(url, false); };
-          // SQLite lives in the JS service. Parse and store XMLTV there, not in
-          // the browser Worker; keep the old loader only for offline service mode.
+          // Своя загрузка платформы (webOS — в JS-сервисе) или разбор здесь, в браузере
           const wanted = self.wantedFor(url);
-          // From 1.0.8 all EPG parsing, HTTP decompression and SQLite writes
-          // happen in the Node service. No browser Worker or IndexedDB writes.
-          const load = EpgService.load(url, wanted, self.maxArchiveDays,
-            self.langs(), force, onProgress, onPack);
+          const epg = platform().epg;
+          const load = epg ? epg.load(url, wanted, self.maxArchiveDays, self.langs(), force, onProgress, onPack)
+            : Loaders.loadEpg(url, wanted, self.maxArchiveDays, self.langs(), force, onProgress, onPack);
           return load.then(function () {
             delete self.queued[url];
             self.progress = null;
@@ -426,13 +423,8 @@ export class Repo {
       self.rev[ck] = (self.rev[ck] || 0) + 1;
       Bus.emit('epg', ch.key);
     };
-    if (!Net.proxyAvailable) { done(null); return null; }
-    const r = new XMLHttpRequest();
-    r.open('GET', PROXY + '/prog?days=1&s=' + encodeURIComponent(e[0]) + '&x=' + encodeURIComponent(e[1]), true);
-    r.timeout = 15000;
-    r.onload = function () { let v: any = null; try { v = r.status === 200 ? JSON.parse(r.responseText) : null; } catch (er) { v = null; } done(Array.isArray(v) ? v : null); };
-    r.onerror = r.ontimeout = function () { done(null); };
-    r.send();
+    const epg = platform().epg;
+    (epg ? epg.days(e[0], e[1]) : localDays(e[0], e[1])).then(done, function () { done(null); });
     return null;
   }
 
@@ -570,23 +562,9 @@ export class Repo {
       }
       return next();
     }
-    if (!Net.proxyAvailable || !items.length) return local();
-    return new Promise<any[]>(function (resolve, reject) {
-      const r = new XMLHttpRequest();
-      r.open('POST', PROXY + '/progsearch', true);
-      r.timeout = 60000;
-      r.onload = function () {
-        if (r.status !== 200) { reject(new Error('progsearch ' + r.status)); return; }
-        try { resolve(JSON.parse(r.responseText)); } catch (e) { reject(e); }
-      };
-      r.onerror = r.ontimeout = function () { reject(new Error('progsearch network')); };
-      // text/plain — без предварительного OPTIONS
-      r.setRequestHeader('Content-Type', 'text/plain');
-      r.send(JSON.stringify({ w: words, c: items, max: 2000 }));
-      const poll = setInterval(function () { if (cancelled()) { clearInterval(poll); try { r.abort(); } catch (e) { /* */ } } }, 200);
-      const stop = function () { clearInterval(poll); };
-      r.addEventListener('loadend', stop);
-    }).then(function (hits) {
+    const epg = platform().epg;
+    if (!epg || !items.length) return local();
+    return epg.search(words, items, 2000, cancelled).then(function (hits) {
       if (cancelled()) return out;
       // [[i, {l, p}], …] — по каналам, в порядке списка
       const by: { [i: number]: any[] } = {};
@@ -603,10 +581,6 @@ export class Repo {
   }
 }
 
-/**
- * Пачки → список передач: дубли по началу — из более новой загрузки, по возрастанию,
- * перекрытия обрезаются по началу следующей.
- */
 /**
  * Не больше 4 запросов программы одновременно; ждущие — новые первыми: при листании гида
  * с удержанием ↑/↓ сначала приходят строки, на которых остановились, а не пролистанные.
@@ -652,20 +626,34 @@ function programmePacks(s: string, x: string, a: number, b: number): Promise<any
       return out;
     });
   };
-  if (!Net.proxyAvailable) return fallback();
-  return new Promise<any[]>(function (resolve, reject) {
-    const r = new XMLHttpRequest();
-    r.open('GET', PROXY + '/prog?s=' + encodeURIComponent(s) + '&x=' + encodeURIComponent(x) + '&a=' + a + '&b=' + b, true);
-    r.timeout = 15000;
-    r.onload = function () {
-      if (r.status !== 200) { reject(new Error('prog ' + r.status)); return; }
-      try { resolve(JSON.parse(r.responseText)); } catch (e) { reject(e); }
-    };
-    r.onerror = r.ontimeout = function () { reject(new Error('prog network')); };
-    r.send();
-  }).then(null, function (e) { console.warn('prog http', e && e.message); return fallback(); });
+  const epg = platform().epg;
+  if (!epg) return fallback();
+  return epg.packs(s, x, a, b).then(null, function (e) { console.warn('prog', e && e.message); return fallback(); });
 }
 
+/** Оглавление суток канала по базе (у платформы нет своего): [[сутки UTC, передач], …] */
+function localDays(s: string, x: string): Promise<number[][]> {
+  return Db.all<any>('prog', prefixRange([s, x])).then(function (packs) {
+    const by: { [d: number]: number } = {};
+    for (let i = 0; i < packs.length; i++) {
+      const p = unpackProgramme(packs[i]);
+      for (let j = 0; j < p.length; j++) { const d = Math.floor(p[j][0] / DAY); by[d] = (by[d] || 0) + 1; }
+    }
+    return Object.keys(by).map(function (d) { return [+d, by[+d]]; }).sort(function (a, b) { return a[0] - b[0]; });
+  });
+}
+
+/** Сопоставление каналов с уже загруженным источником: у платформы, не вышло — здесь, по базе */
+function rematch(url: string, wanted: WantedSet[]): Promise<void> {
+  const epg = platform().epg;
+  if (!epg) return Loaders.rematch(url, wanted);
+  return epg.rematch(url, wanted).then(null, function () { return Loaders.rematch(url, wanted); });
+}
+
+/**
+ * Пачки → список передач: дубли по началу — из более новой загрузки, по возрастанию,
+ * перекрытия обрезаются по началу следующей.
+ */
 export function merge(packs: any[], shift: number): Programme[] {
   packs.sort(function (a, b) { return b.l - a.l || a.n - b.n; });
   const byStart: { [t: number]: true } = {};

@@ -1,21 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const platform = vi.hoisted(() => ({
+const luna = vi.hoisted(() => ({
   isWebOS: true,
   startService: vi.fn(),
   requestService: vi.fn(),
 }));
-vi.mock('../src/core/platform', () => ({ Platform: platform }));
+vi.mock('../src/platform/webos/luna', () => ({ Luna: luna }));
 
-import { Net, NetError } from '../src/core/net';
+import { WebosProxy } from '../src/platform/webos/proxy';
 
-describe('Net: обход CORS через Luna без локального HTTP', () => {
+describe('Прокси webOS: обход CORS через Luna без локального HTTP', () => {
   it('читает M3U в чанках через PalmServiceBridge и закрывает сессию', async () => {
     (globalThis as any).document = {};
     const raw = new TextEncoder().encode('#EXTM3U\n#EXTINF:-1,Канал\nhttp://example.com/live.m3u8\n');
     const half = Math.floor(raw.length / 2);
     let reads = 0;
-    platform.requestService.mockImplementation((method: string, args: any) => {
+    luna.requestService.mockImplementation((method: string, args: any) => {
       if (method === 'ping') return Promise.resolve({ returnValue: true, proxyReady: false, node: '0.12.2' });
       if (method === 'streamOpen') return Promise.resolve({ returnValue: true, id: 'abc', status: 200, url: args.url,
         headers: { 'content-type': 'audio/x-mpegurl' } });
@@ -27,28 +27,28 @@ describe('Net: обход CORS через Luna без локального HTTP'
       throw new Error('unexpected RPC ' + method);
     });
     const bytes: number[] = [];
-    const result = await Net.streamProxy('https://example.com/list.m3u', {}, chunk => {
+    const result = await WebosProxy.stream('https://example.com/list.m3u', {}, chunk => {
       for (let i = 0; i < chunk.length; i++) bytes.push(chunk[i]);
     });
     expect(new TextDecoder().decode(new Uint8Array(bytes))).toContain('Канал');
     expect(result.status).toBe(200);
     expect(result.proxied).toBe(true);
-    expect(Net.lunaAvailable).toBe(true);
-    expect(platform.requestService).toHaveBeenCalledWith('streamClose', { id: 'abc' }, 5000);
+    expect(WebosProxy.luna).toBe(true);
+    expect(luna.requestService).toHaveBeenCalledWith('streamClose', { id: 'abc' }, 5000);
     delete (globalThis as any).document;
   });
 
   it('не маскирует HTTP 403 и закрывает сессию', async () => {
     (globalThis as any).document = {};
-    platform.requestService.mockImplementation((method: string) => {
+    luna.requestService.mockImplementation((method: string) => {
       if (method === 'streamOpen') return Promise.resolve({ returnValue: true, id: 'forbidden', status: 403,
         headers: {}, url: 'https://example.com/blocked' });
       if (method === 'streamClose') return Promise.resolve({ returnValue: true });
       throw new Error('Unexpected ' + method);
     });
-    await expect(Net.streamProxy('https://example.com/blocked', {}, () => {}))
+    await expect(WebosProxy.stream('https://example.com/blocked', {}, () => {}))
       .rejects.toMatchObject({ code: 'http_403', status: 403 });
-    expect(platform.requestService).toHaveBeenCalledWith('streamClose', { id: 'forbidden' }, 5000);
+    expect(luna.requestService).toHaveBeenCalledWith('streamClose', { id: 'forbidden' }, 5000);
     delete (globalThis as any).document;
   });
 });

@@ -1,5 +1,5 @@
-import { str } from '../core/lang';
-import { About, THIRD_PARTY } from '../core/about';
+import { str } from '../lang';
+import { About, THIRD_PARTY } from '../about';
 import { el } from './dom';
 import { PopupLayer, Scroller } from './popups';
 import { drawQr } from './qrcode';

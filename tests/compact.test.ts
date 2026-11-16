@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { packChannels, packProgramme, unpackChannels, unpackProgramme } from '../src/data/compact';
-import { errorCode, isQuotaError } from '../src/data/loaders';
-import { merge } from '../src/data/repo';
-import { RawChannel } from '../src/data/m3u';
+import { packChannels, packProgramme, unpackChannels, unpackProgramme } from '../src/core/data/compact';
+import { errorCode, isQuotaError } from '../src/core/data/loaders';
+import { merge } from '../src/core/data/repo';
+import { RawChannel } from '../src/core/data/m3u';
 import { gzipSync, strToU8 } from 'fflate';
 
 function channel(i: number): RawChannel {

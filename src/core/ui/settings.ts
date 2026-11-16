@@ -1,11 +1,10 @@
-import { Clock } from '../core/clock';
-import { lang, languages, plural, str } from '../core/lang';
-import { Net } from '../core/net';
-import { Platform } from '../core/platform';
-import { Prefs } from '../core/prefs';
-import { Storage2 } from '../core/storage';
-import { Db } from '../data/db';
-import { SocketDb } from '../data/socketdb';
+import { Clock } from '../clock';
+import { lang, languages, plural, str } from '../lang';
+import { Net } from '../net';
+import { platform } from '../platform';
+import { Prefs } from '../prefs';
+import { Storage2 } from '../storage';
+import { Db, lowerBound } from '../data/db';
 import { SourceMeta, SRC_ERROR, SRC_LOADING, SRC_READY } from '../data/loaders';
 import { EPG_BOTH, EPG_PLAYLIST, EPG_USER_ONLY, Playlist } from '../data/models';
 import { Reminders } from '../data/reminders';
@@ -18,7 +17,7 @@ import { PinLayer } from './pin';
 import { FormLayer, MessageLayer, Scroller } from './popups';
 import { QrPlaylistLayer } from './qrplaylist';
 import { LicensesLayer, QrLinkLayer } from './about';
-import { About } from '../core/about';
+import { About } from '../about';
 import type { Tv } from './tv';
 import { U } from './u';
 import { hintRow } from './widgets';
@@ -242,7 +241,7 @@ export class SettingsLayer implements Layer {
       out.push({ name: p.name, value: function () { return p.id === Prefs.lastPlaylist ? '●' : ''; }, desc: p.url + ' · ' + status, action: function () { self.push(self.playlistPage(p)); } });
     });
     out.push({ name: str('plus_add_playlist'), action: function () { self.editPlaylist(null); } });
-    out.push({ name: str('playlist_qr_action'), desc: str('playlist_qr_action_desc'), action: function () { self.addPlaylistByQr(); } });
+    if (platform().qr) out.push({ name: str('playlist_qr_action'), desc: str('playlist_qr_action_desc'), action: function () { self.addPlaylistByQr(); } });
     return out;
   }
 
@@ -278,7 +277,7 @@ export class SettingsLayer implements Layer {
     };
   }
 
-  /** Приём ссылки с телефона через временный HTTP-сервер на самом ТВ. */
+  /** Приём ссылки с телефона (PlatformApi.qr; на webOS — временный HTTP-сервер на самом ТВ) */
   private addPlaylistByQr() {
     const self = this;
     const tv = this.tv;
@@ -462,17 +461,19 @@ export class SettingsLayer implements Layer {
 
   private pageNetwork(): SItem[] {
     const self = this;
-    // items() вызывается на каждой перерисовке — спрашивать сервис не чаще раза в 10 с
-    if (Storage2.sqliteActive() && Date.now() - this.storageAsked > 10000) this.storageAsked = Date.now(), SocketDb.storageBytes().then(function (b) { self.storageBytes = b; self.refresh(); }, function () { /* */ });
-    return [
-      { name: str('proxy_status'), value: function () { return Net.proxyAvailable ? str('proxy_running') : Net.lunaAvailable ? str('proxy_luna') : str('proxy_absent'); }, desc: str('proxy_status_sub'), action: function () { Net.checkProxy().then(function () { self.refresh(); }); } },
-      { name: str('sqlite_storage'), desc: str('sqlite_storage_sub'), value: function () {
-        if (!Storage2.sqliteActive()) return str('sqlite_not_ready');
-        return self.storageBytes >= 0 ? str('sqlite_ready') + ' · ' + str('size_mb', (self.storageBytes / 1048576).toFixed(1)) : str('sqlite_ready');
-      }, action: function () { SocketDb.available().then(function () { return SocketDb.storageBytes(); }).then(function (b) { self.storageBytes = b; self.refresh(); }, function () { self.refresh(); }); } },
-      { name: str('proxy_mode'), desc: str('proxy_mode_sub'), values: [str('proxy_auto'), str('proxy_always'), str('proxy_never')], index: function () { return Prefs.proxyMode; }, pick: function (i) { Prefs.proxyMode = i; } },
-      { name: str('platform'), value: function () { return Platform.isWebOS ? 'webOS ' + (Platform.version() || '') : navigator.userAgent.replace(/^.*(Chrom(e|ium)\/[\d.]+).*$/, '$1'); }, note: false },
-    ];
+    // items() вызывается на каждой перерисовке — спрашивать размер не чаще раза в 10 с
+    const askSize = function () { self.storageAsked = Date.now(); platform().storageBytes().then(function (b) { self.storageBytes = b; self.refresh(); }, function () { self.refresh(); }); };
+    if (Storage2.persistent() && Date.now() - this.storageAsked > 10000) askSize();
+    const items: SItem[] = [];
+    const lb = platform().labels;
+    if (Net.proxyState()) items.push({ name: str(lb.proxy), value: function () { return str(Net.proxyState()); }, desc: str(lb.proxySub), action: function () { Net.checkProxy().then(function () { self.refresh(); }); } });
+    items.push({ name: str(lb.storage), desc: str(lb.storageSub), value: function () {
+      if (!Storage2.persistent()) return str('sqlite_not_ready');
+      return self.storageBytes >= 0 ? str('sqlite_ready') + ' · ' + str('size_mb', (self.storageBytes / 1048576).toFixed(1)) : str('sqlite_ready');
+    }, action: askSize });
+    if (Net.proxyState()) items.push({ name: str(lb.proxyMode), desc: str('proxy_mode_sub'), values: [str('proxy_auto'), str('proxy_always'), str('proxy_never')], index: function () { return Prefs.proxyMode; }, pick: function (i) { Prefs.proxyMode = i; } });
+    items.push({ name: str('platform'), value: function () { return platform().label(); }, note: false });
+    return items;
   }
 
   /** О программе: версия, ссылки (QR-кодом — на ТВ ссылку не нажать), лицензии */
@@ -507,7 +508,7 @@ export class SettingsLayer implements Layer {
       { name: str('log'), desc: str('log_sub'), action: function () { tv.openLog(); } },
       { name: str('logo_cache'), desc: str('logo_cache_sub_webos'), action: function () { Logos.clearFailed(); tv.toast.show(str('logo_cache_cleared')); } },
       { name: str('clear_programme'), desc: str('clear_programme_sub'), action: function () {
-        Promise.all([Db.deleteRange('prog', IDBKeyRange.lowerBound([''])), Db.deleteRange('sources', IDBKeyRange.lowerBound('')), Db.deleteRange('epgch', IDBKeyRange.lowerBound(['']))]).then(function () {
+        Promise.all([Db.deleteRange('prog', lowerBound([''])), Db.deleteRange('sources', lowerBound('')), Db.deleteRange('epgch', lowerBound(['']))]).then(function () {
           tv.repo.invalidateAll();
           tv.toast.show(str('programme_cleared'));
           if (tv.playlist) tv.repo.refreshEpg(tv.playlist, true);
@@ -542,7 +543,7 @@ export class SettingsLayer implements Layer {
     const ps: Playlist[] = (data.playlists || []).map(function (p: any) {
       return { id: p.id, name: p.name, url: p.url, epgMode: p.epgMode || 0, userEpg: p.userEpg || [], headerEpg: [], loadedAt: 0, channelsCount: 0, error: '', sort: p.sort || 0 };
     });
-    Db.deleteRange('playlists', IDBKeyRange.lowerBound(0)).then(function () { return Db.putAll('playlists', ps); }).then(function () {
+    Db.deleteRange('playlists', lowerBound(0)).then(function () { return Db.putAll('playlists', ps); }).then(function () {
       return Storage2.flush();
     }).then(function () {
       tv.toast.show(str('backup_restored'));

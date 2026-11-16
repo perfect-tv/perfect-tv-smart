@@ -1,5 +1,5 @@
-import { NUMBER_BADGE, Prefs } from '../core/prefs';
-import { Storage2 } from '../core/storage';
+import { NUMBER_BADGE, Prefs } from '../prefs';
+import { Storage2 } from '../storage';
 import { Channel } from '../data/models';
 import { Names } from '../data/names';
 import { el } from './dom';

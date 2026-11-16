@@ -1,6 +1,6 @@
-import { Clock } from '../core/clock';
-import { Log } from '../core/log';
-import { str } from '../core/lang';
+import { Clock } from '../clock';
+import { Log } from '../log';
+import { str } from '../lang';
 import { Channel } from '../data/models';
 import { inArchive, isMissed, Reminder } from '../data/reminders';
 import { Anim, el, setText, toggle, visible } from './dom';

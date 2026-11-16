@@ -1,4 +1,4 @@
-import { Prefs, NUMBER_NEAR_NAME } from '../core/prefs';
+import { Prefs, NUMBER_NEAR_NAME } from '../prefs';
 import { Names } from './names';
 import { RawChannel } from './m3u';
 

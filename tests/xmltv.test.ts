@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { gzipSync } from 'fflate';
-import { XmltvParser, EpgChannelRaw, EpgProgramme, parseTime } from '../src/data/xmltv';
-import { EpgMatcher } from '../src/data/matcher';
-import { Unpacker } from '../src/data/streams';
+import { XmltvParser, EpgChannelRaw, EpgProgramme, parseTime } from '../src/core/data/xmltv';
+import { EpgMatcher } from '../src/core/data/matcher';
+import { Unpacker } from '../src/core/data/streams';
 
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE tv SYSTEM "xmltv.dtd">

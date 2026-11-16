@@ -1,5 +1,5 @@
-import { str } from '../core/lang';
-import { Prefs } from '../core/prefs';
+import { str } from '../lang';
+import { Prefs } from '../prefs';
 import { el, setText, toggle } from './dom';
 import { PopupLayer } from './popups';
 

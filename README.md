@@ -44,6 +44,18 @@ python3 -m http.server 8731 --bind 127.0.0.1 --directory dist
 
 Открыть `http://127.0.0.1:8731/index.html` в окне 1920×1080. Пульт — клавиатура: стрелки, Enter (OK), Esc (Назад), PageUp/PageDown (CH±), M — меню, G — гид, I — инфо, H — недавние, F — поиск, пробел — пауза, «,» / «.» — перемотка.
 
+Это сборка webOS (сервис ищется на `127.0.0.1:47380`). Сборка для браузера и ТВ, где приложение — страница по адресу (VIDAA, Titan OS, MSX), — отдельная:
+
+```bash
+npm run build:browser
+```
+
+```bash
+python3 -m http.server 8731 --bind 127.0.0.1 --directory dist-browser
+```
+
+В ней нет JS-сервиса: настройки — в localStorage, плейлисты и программа — в IndexedDB страницы, программа разбирается в воркере (код встроен в `app.js`, рядом — `epg-worker.js` на случай, если запуск из Blob запрещён). Серверы без CORS — только через прокси: открыть `http://127.0.0.1:8731/?proxy=http://127.0.0.1:47380` (с `npm run proxy` на ПК или свой сервер с тем же протоколом `/ping`, `/p?u=&h=`). Адрес прокси запоминается в браузере, `?proxy=` без адреса — забыть. Без прокси такие серверы дают ошибку с подсказкой, в «Настройки → Сеть» — «Прокси: не задан». Кнопки «С телефона» нет.
+
 ## Симулятор webOS TV
 
 webOS TV Simulator (с сайта LG, для Linux — AppImage) JS-сервисы не запускает: держать `npm run proxy` на ПК — приложение найдёт прокси на `127.0.0.1:47380`.
@@ -81,16 +93,22 @@ npx ares-launch -d tv top.rootu.perfecttv
 ## Устройство кода
 
 ```
-src/main.ts            запуск: стили, масштаб, клавиши, колесо и курсор Magic Remote
-src/core/              Clock, Net (fetch-поток, Range, сессии прокси), Platform (Luna, сервис, выход),
-                       Prefs, Storage2 (localStorage), lang (строки), polyfills (Chromium 38)
-src/data/              m3u, xmltv (shared), compact, catchup, matcher, sqlite client,
-                       epgservice (WebSocket progress), repo, catalog, userdata
-src/service/           epg-entry.ts (shared parser + matcher for Node bundle)
-src/player/playback.ts hls.js и встроенный плеер: окно, PROGRAM-DATE-TIME, дорожки
-src/ui/                tv (оркестратор), keys, layer, info (инфопанель), guide (Canvas), schedule,
+src/core/              общее для всех ТВ; о платформе знает только через PlatformApi (platform.ts)
+  app.ts               запуск: платформа → настройки → интерфейс; клавиши, колесо, курсор Magic Remote
+  *.ts                 Clock, Net (fetch-поток, Range; прокси — у платформы), Prefs, Storage2 (кэш
+                       настроек поверх PlatformApi.kv), lang (строки), log, about, polyfills (Chromium 38)
+  data/                m3u, xmltv (общий с сервисом), compact, catchup, matcher, db (схема и
+                       RecordDb), idb (IndexedDB), loaders (разбор в браузере), epgworker (клиент
+                       воркера), repo, catalog, userdata
+  worker/epg.ts        воркер программы: сеть, распаковка, разбор (отдельный бандл, встроен в app.js)
+  player/              hls.js и встроенный плеер: окно, PROGRAM-DATE-TIME, дорожки
+  ui/                  tv (оркестратор), keys, layer, info (инфопанель), guide (Canvas/DOM), schedule,
                        menu, pin, popups (окна, списки, карточка, напоминания, формы), search,
                        settings, widgets (тост, набор номера, карусель), logos, cells, u, style, fmt
+src/platform/webos/    LG webOS: main.ts (точка входа), webos.ts (PlatformApi), luna (Luna, сервис,
+                       выход, курсор), proxy (HTTP и Luna-потоки), socketdb + kv + db (хранилище
+                       сервиса, перенос старых данных), filedb (данные 1.0.2–1.0.6), epg (программа
+                       в сервисе), qr, epg-entry.ts (разборщик для Node), index.html
 service/               proxy.js (локальный прокси + WebSocket), sqlitekv.js + sqlite-settings.js (две SQLite3),
                        epgservice.js (stream XMLTV -> SQLite), epg-parser.js (ES5 bundle),
                        service.js (JS-сервис webOS); код ES5/Node.js 0.12+

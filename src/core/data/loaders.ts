@@ -1,10 +1,10 @@
-import { Clock } from '../core/clock';
-import { Net, NetError } from '../core/net';
+import { Clock } from '../clock';
+import { Net, NetError } from '../net';
 import { Db, prefixRange } from './db';
 import { packProgramme } from './compact';
 import { M3uParser, RawChannel, epgUrls } from './m3u';
 import { EpgMatcher } from './matcher';
-import { SocketDb } from './socketdb';
+import { EpgWorker } from './epgworker';
 import { Playlist } from './models';
 import { Unpacker } from './streams';
 import { EpgChannelRaw, EpgProgramme, XmltvParser } from './xmltv';
@@ -31,6 +31,16 @@ export interface WantedSet { pid: number; channels: Wanted[] }
 
 /** Запись сопоставления: ключ канала → [xml_id, иконка] */
 export interface MapRecord { pid: number; s: string; m: { [key: string]: [string, string] } }
+
+/** Загрузка программы одного источника (в воркер уходит как есть) */
+export interface EpgRequest {
+  url: string; wanted: WantedSet[]; maxArchiveDays: number; langs: string[]; loadId: number;
+  /** Условный запрос: '' — без него */
+  etag: string; lastModified: string;
+}
+/** Пачка для записи: каналы XMLTV, сжатые пачки передач (packProgramme), сопоставление */
+export interface EpgBatch { epgch: any[]; packs: any[]; maps: MapRecord[] }
+export interface EpgResult { notModified: boolean; etag: string; lastModified: string; total: number; channels: number; maps: MapRecord[] }
 
 export function isQuotaError(e: any): boolean {
   if (!e) return false;
@@ -88,19 +98,79 @@ export const Loaders = {
   headerEpg(header: { [k: string]: string }): string[] { return epgUrls(header); },
 
   /**
-   * Программа одного источника (docs/TZ.md, §5) для всех плейлистов, где он указан.
-   * Пачки по каналу пишутся в IndexedDB по ходу разбора; после успеха старые пачки удаляются.
+   * Программа одного источника (docs/TZ.md, §5) для всех плейлистов, где он указан — для платформ
+   * без своей загрузки. Сеть и разбор — в воркере (EpgWorker), нет воркера — здесь же кусками;
+   * пачки пишутся в базу по ходу разбора, после успеха старые пачки источника удаляются.
    */
   loadEpg(url: string, wanted: WantedSet[], maxArchiveDays: number, langs: string[], force: boolean,
     onProgress: (read: number, total: number, programmes: number) => void, onPack: () => void): Promise<SourceMeta> {
     let meta: SourceMeta;
-    const now = Clock.now();
-    const lo = now - (maxArchiveDays + 1) * 86400;
-    const hi = now + 8 * 86400;
     const loadId = Date.now();
+    const sink = function (b: EpgBatch): Promise<void> {
+      const tasks: Promise<void>[] = [];
+      if (b.epgch.length) tasks.push(Db.putAll('epgch', b.epgch));
+      if (b.packs.length) tasks.push(Db.putAll('prog', b.packs));
+      for (let i = 0; i < b.maps.length; i++) tasks.push(Db.put('map', b.maps[i]));
+      return Promise.all(tasks).then(function () { if (b.packs.length) onPack(); });
+    };
+    console.log('epg start', url);
+    return Db.get<SourceMeta>('sources', url).then(function (old) {
+      meta = old || { url: url, loadedAt: 0, loadId: 0, etag: '', lastModified: '', error: '', count: 0, status: SRC_NONE };
+      const req: EpgRequest = {
+        url: url, wanted: wanted, maxArchiveDays: maxArchiveDays, langs: langs, loadId: loadId,
+        etag: force || !meta.etag || meta.status === SRC_ERROR ? '' : meta.etag,
+        lastModified: force || !meta.lastModified ? '' : meta.lastModified,
+      };
+      meta.status = SRC_LOADING;
+      return EpgWorker.available().then(function (ok) {
+        return ok ? EpgWorker.parse(req, sink, onProgress) : Loaders.parseEpg(req, sink, onProgress);
+      });
+    }).then(function (r) {
+      if (r.notModified) {
+        meta.loadedAt = Clock.now();
+        meta.status = SRC_READY;
+        meta.error = '';
+        return Db.put('sources', meta).then(function () { return Loaders.rematch(url, wanted); }).then(function () { return meta; });
+      }
+      // старые загрузки источника и всё, что вне окна хранения
+      return Db.deleteWhere('prog', prefixRange([url]), function (v) { return v.l !== loadId; }).then(function () {
+        return Promise.all(r.maps.map(function (m) { return Db.put('map', m); }));
+      }).then(function () {
+        meta.loadedAt = Clock.now();
+        meta.loadId = loadId;
+        meta.etag = r.etag;
+        meta.lastModified = r.lastModified;
+        meta.error = '';
+        meta.count = r.total;
+        meta.status = SRC_READY;
+        console.log('epg done', url, r.total, 'programmes', r.channels, 'channels');
+        return Db.put('sources', meta);
+      }).then(function () { return meta; });
+    }).then(null, function (e) {
+      const code = errorCode(e);
+      console.warn('EPG', url, code, e);
+      if (!meta) meta = { url: url, loadedAt: 0, loadId: 0, etag: '', lastModified: '', error: code, count: 0, status: SRC_ERROR };
+      meta.error = code;
+      meta.status = SRC_ERROR;
+      // данные этой загрузки остаются (часть программы лучше, чем ничего), старые не удаляются
+      return Db.put('sources', meta).then(function () { return meta; });
+    });
+  },
+
+  /**
+   * Сеть, распаковка и разбор XMLTV без базы — то, что делает воркер (src/core/worker/epg.ts).
+   * sink получает пачки (каналы XMLTV, сжатые пачки передач, сопоставление) и задерживает разбор,
+   * пока не запишет: память — на одну пачку. Ответ 304 — notModified.
+   */
+  parseEpg(req: EpgRequest, sink: (b: EpgBatch) => Promise<void>,
+    onProgress: (read: number, total: number, programmes: number) => void): Promise<EpgResult> {
+    const url = req.url, wanted = req.wanted, loadId = req.loadId;
+    const now = Clock.now();
+    const lo = now - (req.maxArchiveDays + 1) * 86400;
+    const hi = now + 8 * 86400;
     const matcher = new EpgMatcher();
     const icons: { [id: string]: string } = {};
-    const epgChannels: any[] = [];
+    let epgChannels: any[] = [];
     let want: { [id: string]: true } = {};
     let maps: MapRecord[] = [];
     let packs: any[] = [];
@@ -135,7 +205,7 @@ export const Loaders = {
       }
     }
 
-    const parser = new XmltvParser(langs,
+    const parser = new XmltvParser(req.langs,
       function (c: EpgChannelRaw) {
         matcher.addChannel(c);
         if (c.icon) icons[c.id] = c.icon;
@@ -154,75 +224,42 @@ export const Loaders = {
 
     function writePending(final: boolean): Promise<void> {
       if (final) flushCur();
-      const tasks: Promise<void>[] = [];
-      if (epgChannels.length) { tasks.push(Db.putAll('epgch', epgChannels.splice(0, epgChannels.length))); }
+      const batch: EpgBatch = { epgch: [], packs: [], maps: [] };
+      if (epgChannels.length) { batch.epgch = epgChannels; epgChannels = []; }
       if (packs.length && (final || pending >= 3000)) {
-        tasks.push(Db.putAll('prog', packs.map(packProgramme)));
+        batch.packs = packs.map(packProgramme);
+        batch.maps = maps;
         packs = [];
         pending = 0;
-        tasks.push(Promise.all(maps.map(function (m) { return Db.put('map', m); })).then(function () { /* */ }));
       }
-      if (!tasks.length) return yieldUi();
-      return Promise.all(tasks).then(function () { onPack(); return yieldUi(); });
+      if (!batch.epgch.length && !batch.packs.length) return yieldUi();
+      return sink(batch).then(yieldUi);
     }
 
-    console.log('epg start', url);
-    return Db.get<SourceMeta>('sources', url).then(function (old) {
-      meta = old || { url: url, loadedAt: 0, loadId: 0, etag: '', lastModified: '', error: '', count: 0, status: SRC_NONE };
-      meta.status = SRC_LOADING;
-      let etag = '', lm = '';
-      return Net.stream(url, {
-        etag: force || !meta.etag || meta.status === SRC_ERROR ? undefined : meta.etag,
-        lastModified: force || !meta.lastModified ? undefined : meta.lastModified,
-        onResponse: function (r) { etag = r.header('ETag'); lm = r.header('Last-Modified'); },
-        onProgress: function (r, t) { read = r; size = t; },
-      }, function (chunk) {
-        unp.push(chunk);
-        onProgress(read, size, total);
-        return writePending(false);
-      }).then(function (r) {
-        if (r.status === 304) {
-          meta.loadedAt = Clock.now();
-          meta.status = SRC_READY;
-          meta.error = '';
-          return Db.put('sources', meta).then(function () { return Loaders.rematch(url, wanted); }).then(function () { return meta; });
-        }
-        unp.end();
-        parser.end();
-        if (!maps.length) rebuildWanted();
-        return writePending(true).then(function () {
-          // старые загрузки источника и всё, что вне окна хранения
-          return Db.deleteWhere('prog', prefixRange([url]), function (v) { return v.l !== loadId; });
-        }).then(function () {
-          return Promise.all(maps.map(function (m) { return Db.put('map', m); }));
-        }).then(function () {
-          meta.loadedAt = Clock.now();
-          meta.loadId = loadId;
-          meta.etag = etag;
-          meta.lastModified = lm;
-          meta.error = '';
-          meta.count = total;
-          meta.status = SRC_READY;
-          console.log('epg done', url, total, 'programmes', parser.channels, 'channels');
-          return Db.put('sources', meta);
-        }).then(function () { return meta; });
+    let etag = '', lm = '';
+    return Net.stream(url, {
+      etag: req.etag || undefined,
+      lastModified: req.lastModified || undefined,
+      onResponse: function (r) { etag = r.header('ETag'); lm = r.header('Last-Modified'); },
+      onProgress: function (r, t) { read = r; size = t; },
+    }, function (chunk) {
+      unp.push(chunk);
+      onProgress(read, size, total);
+      return writePending(false);
+    }).then(function (r) {
+      if (r.status === 304) return { notModified: true, etag: etag, lastModified: lm, total: 0, channels: 0, maps: [] };
+      unp.end();
+      parser.end();
+      if (!maps.length) rebuildWanted();
+      return writePending(true).then(function () {
+        return { notModified: false, etag: etag, lastModified: lm, total: total, channels: parser.channels, maps: maps };
       });
-    }).then(null, function (e) {
-      const code = errorCode(e);
-      console.warn('EPG', url, code, e);
-      if (!meta) meta = { url: url, loadedAt: 0, loadId: 0, etag: '', lastModified: '', error: code, count: 0, status: SRC_ERROR };
-      meta.error = code;
-      meta.status = SRC_ERROR;
-      // данные этой загрузки остаются (часть программы лучше, чем ничего), старые не удаляются
-      return Db.put('sources', meta).then(function () { return meta; });
     });
   },
 
   /** Пересопоставить каналы плейлистов с уже загруженным источником (плейлист перезагружен, 304) */
   rematch(url: string, wanted: WantedSet[]): Promise<void> {
-    return SocketDb.available().then(function (active) {
-      if (active) return SocketDb.epgRematch(url, wanted);
-      return Db.all<any>('epgch', prefixRange([url])).then(function (list) {
+    return Db.all<any>('epgch', prefixRange([url])).then(function (list) {
       if (!list.length) return;
       const matcher = new EpgMatcher();
       const icons: { [id: string]: string } = {};
@@ -242,7 +279,6 @@ export const Loaders = {
         recs.push({ pid: wanted[i].pid, s: url, m: m });
       }
       return Db.putAll('map', recs);
-      });
     });
   },
 };

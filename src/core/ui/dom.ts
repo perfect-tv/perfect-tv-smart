@@ -1,4 +1,4 @@
-import { Prefs } from '../core/prefs';
+import { Prefs } from '../prefs';
 
 /** Мелочи для DOM: создание элементов, показ/скрытие с прозрачностью, классы */
 export function el(tag: string, cls?: string, text?: string | null, parent?: HTMLElement | null): HTMLElement {

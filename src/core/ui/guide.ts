@@ -1,6 +1,6 @@
-import { Clock } from '../core/clock';
-import { str } from '../core/lang';
-import { NUMBER_NEAR_NAME, Prefs } from '../core/prefs';
+import { Clock } from '../clock';
+import { str } from '../lang';
+import { NUMBER_NEAR_NAME, Prefs } from '../prefs';
 import { Group } from '../data/catalog';
 import { Channel, Playlist, Programme } from '../data/models';
 import { Reminders } from '../data/reminders';

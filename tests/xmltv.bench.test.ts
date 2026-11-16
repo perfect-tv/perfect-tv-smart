@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { XmltvParser } from '../src/data/xmltv';
-import { Unpacker } from '../src/data/streams';
+import { XmltvParser } from '../src/core/data/xmltv';
+import { Unpacker } from '../src/core/data/streams';
 
 /**
  * Скорость разбора XMLTV: синтетика (2000 каналов, нужны 5%) кусками по 64 КБ, как из сети.

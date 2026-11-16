@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { FileDb } from '../src/data/filedb';
-import { Net } from '../src/core/net';
-import { packChannels, unpackChannels } from '../src/data/compact';
+import { FileDb } from '../src/platform/webos/filedb';
+import { WebosProxy } from '../src/platform/webos/proxy';
+import { packChannels, unpackChannels } from '../src/core/data/compact';
 
 const oldXhr = (globalThis as any).XMLHttpRequest;
 const saved: { [store: string]: { [key: string]: { key: any; value: any } } } = {};
@@ -22,6 +22,8 @@ class MockXHR {
     const self = this;
     setTimeout(function () {
       try {
+        // проверка прокси (WebosProxy.check)
+        if (/\/(ping|ua\?)/.test(self.address)) { self.status = 200; self.responseText = '{"ok":true}'; if (self.onload) self.onload(); return; }
         const path = self.address.split('/_db/')[1];
         const cmd = path.split('?')[0];
         const data = body ? JSON.parse(body) : {};
@@ -54,13 +56,12 @@ class MockXHR {
   }
 }
 
-beforeAll(function () {
+beforeAll(async function () {
   (globalThis as any).XMLHttpRequest = MockXHR;
-  Net.setProxy(true);
+  expect(await WebosProxy.check()).toBe(true);
   FileDb.resetStatus();
 });
 afterAll(function () {
-  Net.setProxy(false);
   FileDb.resetStatus();
   (globalThis as any).XMLHttpRequest = oldXhr;
 });

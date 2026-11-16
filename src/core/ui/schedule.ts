@@ -1,5 +1,5 @@
-import { Clock } from '../core/clock';
-import { str } from '../core/lang';
+import { Clock } from '../clock';
+import { str } from '../lang';
 import { Bus } from '../data/bus';
 import { Channel } from '../data/models';
 import { inArchive, isMissed, Reminder, Reminders } from '../data/reminders';

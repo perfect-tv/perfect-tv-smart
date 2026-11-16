@@ -1,26 +1,9 @@
-import { str } from '../core/lang';
-import { Net } from '../core/net';
+import { str } from '../lang';
+import { platform } from '../platform';
 import { el, setText } from './dom';
 import { PopupLayer } from './popups';
 import { drawQr } from './qrcode';
 import { U } from './u';
-
-const API = 'http://127.0.0.1:47380/qr/';
-
-interface QrResponse { returnValue?: boolean; url?: string; token?: string; name?: string; ready?: boolean; error?: string }
-
-function get(path: string, cb: (err: string, data: QrResponse | null) => void) {
-  const x = new XMLHttpRequest();
-  x.open('GET', API + path, true);
-  x.timeout = 6000;
-  x.onload = function () {
-    if (x.status !== 200) { cb('HTTP ' + x.status, null); return; }
-    try { cb('', JSON.parse(x.responseText)); } catch (e) { cb('Invalid response', null); }
-  };
-  x.onerror = function () { cb('Connection failed', null); };
-  x.ontimeout = function () { cb('Timeout', null); };
-  x.send();
-}
 
 /** QR: телефон открывает временную страницу на ТВ, ссылка появляется в настройках. */
 export class QrPlaylistLayer extends PopupLayer {
@@ -52,55 +35,48 @@ export class QrPlaylistLayer extends PopupLayer {
 
   private start() {
     const self = this;
-    Net.checkProxy().then(function (ok) {
-      if (self.closed) return;
-      if (!ok) {
-        setText(self.status, Net.lunaAvailable ? str('playlist_qr_no_http') :
-          str('playlist_qr_error') + ': ' + str('proxy_absent'));
+    const qr = platform().qr;
+    if (!qr) { setText(this.status, str('playlist_qr_error')); return; }
+    qr.open().then(function (d) {
+      if (self.closed) { qr.cancel(d.token); return; }
+      self.token = d.token;
+      try { drawQr(self.qr, d.url); } catch (e) {
+        setText(self.status, str('playlist_qr_error'));
         return;
       }
-      get('new', function (err, data) {
-        if (self.closed) return;
-        if (err || !data || !data.returnValue || !data.url || !data.token) {
-          setText(self.status, str('playlist_qr_error') + ': ' + (err || (data && data.error) || 'service unavailable'));
-          return;
-        }
-        self.token = data.token;
-        try { drawQr(self.qr, data.url); } catch (e) {
-          setText(self.status, str('playlist_qr_error'));
-          return;
-        }
-        self.qr.style.display = 'block';
-        self.status.style.paddingTop = '0';
-        setText(self.status, str('playlist_qr_waiting'));
-        setText(self.address, data.url);
-        self.poll();
-      });
-    });
+      self.qr.style.display = 'block';
+      self.status.style.paddingTop = '0';
+      setText(self.status, str('playlist_qr_waiting'));
+      setText(self.address, d.url);
+      self.poll();
+    }, function (e: any) { self.fail(e); });
+  }
+
+  private fail(e: any) {
+    if (this.closed) return;
+    const msg = e && e.message ? e.message : String(e);
+    setText(this.status, e && e.whole ? msg : str('playlist_qr_error') + ': ' + msg);
   }
 
   private poll() {
     if (this.closed || !this.token) return;
     const self = this;
-    get('status?token=' + encodeURIComponent(this.token), function (err, data) {
+    platform().qr!.poll(this.token).then(function (got) {
       if (self.closed) return;
-      if (!err && data && data.returnValue && data.ready && data.url) {
+      if (got) {
         self.closed = true;
         self.cancelRemote();
         self.onClose();
-        self.onPlaylist(data.url, data.name || str('playlist'));
-        return;
-      }
-      if (err || !data || !data.returnValue) {
-        setText(self.status, str('playlist_qr_error') + ': ' + (err || (data && data.error) || 'expired'));
+        self.onPlaylist(got.url, got.name || str('playlist'));
         return;
       }
       self.timer = window.setTimeout(function () { self.poll(); }, 1200);
-    });
+    }, function (e) { self.fail(e); });
   }
 
   private cancelRemote() {
-    if (this.token) get('cancel?token=' + encodeURIComponent(this.token), function () { /* */ });
+    const qr = platform().qr;
+    if (this.token && qr) qr.cancel(this.token);
   }
 
   enter() { this.back(); }

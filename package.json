@@ -5,6 +5,8 @@
   "scripts": {
     "build": "node tools/build.mjs",
     "dev": "node tools/build.mjs --watch",
+    "build:browser": "node tools/build.mjs --platform browser",
+    "dev:browser": "node tools/build.mjs --platform browser --watch",
     "proxy": "node service/proxy.js",
     "test": "vitest run",
     "typecheck": "tsc -p .",

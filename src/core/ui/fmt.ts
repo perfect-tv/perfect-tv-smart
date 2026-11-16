@@ -1,5 +1,5 @@
-import { Clock } from '../core/clock';
-import { lang, str } from '../core/lang';
+import { Clock } from '../clock';
+import { lang, str } from '../lang';
 
 /** Форматирование времени и размеров (местное время ТВ) */
 function pad2(n: number) { return n < 10 ? '0' + n : String(n); }

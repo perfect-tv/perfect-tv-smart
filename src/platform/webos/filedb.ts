@@ -1,12 +1,11 @@
-import { Net, PROXY } from '../core/net';
+import { FileRecord, KeyRange } from '../../core/data/db';
+import { PROXY, WebosProxy } from './proxy';
 
 /**
  * Файловое хранилище через работающий локальный Node-сервис webOS.
- * Используется после переполнения IndexedDB; сервис хранит файлы в /media/internal.
+ * Версии 1.0.2–1.0.6 (после переполнения IndexedDB); теперь — только чтение при переносе (db.ts).
  * Старые webOS/Chromium: XHR и ES5, без fetch, URL, Blob, atob-streams.
  */
-export interface FileRecord<T> { key: any; value: T }
-export interface KeyRange { lower?: any; upper?: any; lowerOpen?: boolean; upperOpen?: boolean }
 let activeCheck: Promise<boolean> | null = null;
 let fileActive = false;
 
@@ -63,7 +62,7 @@ function send(method: string, route: string, payload?: any): Promise<any> {
 function pathParam(key: any) { return encodeURIComponent(JSON.stringify(key)); }
 
 export const FileDb = {
-  available(): boolean { return Net.proxyAvailable && typeof XMLHttpRequest !== 'undefined'; },
+  available(): boolean { return WebosProxy.available && typeof XMLHttpRequest !== 'undefined'; },
   /** Один запрос на весь жизненный цикл потока, файловый режим сохраняется на диске. */
   active(): Promise<boolean> {
     if (!FileDb.available()) return Promise.resolve(false);
@@ -140,12 +139,3 @@ export const FileDb = {
   /** Тестовый сброс временного кеша состояния (без удаления данных). */
   resetStatus() { fileActive = false; activeCheck = null; },
 };
-
-/** В IndexedDB KeyRange свойства открыты только для чтения, берём их явно. */
-export function asRange(r?: IDBKeyRange): KeyRange | undefined {
-  if (!r) return undefined;
-  const out: KeyRange = {};
-  if (r.lower !== undefined) { out.lower = r.lower; out.lowerOpen = r.lowerOpen; }
-  if (r.upper !== undefined) { out.upper = r.upper; out.upperOpen = r.upperOpen; }
-  return out;
-}

@@ -1,4 +1,4 @@
-import { Clock } from '../core/clock';
+import { Clock } from '../clock';
 import type { Repo } from '../data/repo';
 import { Channel, Programme } from '../data/models';
 import { Fmt } from './fmt';

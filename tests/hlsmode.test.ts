@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { useNativeHls } from '../src/player/hlsmode';
+import { useNativeHls } from '../src/core/player/hlsmode';
 
 describe('Выбор HLS на webOS', () => {
   it('авто — эфир через плеер телевизора', () => expect(useNativeHls(2, false, false, false)).toBe(true));

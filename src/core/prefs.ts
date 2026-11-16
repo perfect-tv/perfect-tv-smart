@@ -1,5 +1,5 @@
 import { Storage2 } from './storage';
-import { Platform } from './platform';
+import { platform } from './platform';
 
 /**
  * Настройки и «где остановились». Хранятся в SQLite3 через синхронный кэш Storage2 одним объектом `prefs`
@@ -88,7 +88,7 @@ export const Prefs = {
   /** Отрисовка гида: 0 — HTML (DOM, перерисовываются только изменившиеся элементы), 1 — Canvas */
   get guideRender() { return int('guide_render', 0, 0, 1); }, set guideRender(v: number) { put('guide_render', v); },
   /** HLS: 0 — hls.js, 1 — native, 2 — auto (native эфир, hls.js архив). */
-  get hlsEngine() { return int('hls_engine', Platform.isWebOS ? 2 : 0, 0, 2); }, set hlsEngine(v: number) { put('hls_engine', v); },
+  get hlsEngine() { return int('hls_engine', platform().defaultHlsEngine, 0, 2); }, set hlsEngine(v: number) { put('hls_engine', v); },
 
   get lastPlaylist() { return int('last_playlist', 0); }, set lastPlaylist(v: number) { put('last_playlist', v); },
   lastChannel(playlistId: number): string { return str('last_channel_' + playlistId, ''); },

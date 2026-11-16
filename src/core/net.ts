@@ -1,15 +1,12 @@
 import { Clock } from './clock';
 import { Prefs } from './prefs';
-import { Platform } from './platform';
+import { platform } from './platform';
 
 /**
- * Сеть (docs/TZ.md, §2 «Сеть»). Прямой запрос — fetch с потоком (webOS 4+) или куски Range
- * через XHR (webOS 3). Через локальный прокси (JS-сервис) — если у запроса свои заголовки,
- * если прямой запрос упал на CORS или если так выбрано в настройках.
+ * Сеть (docs/TZ.md, §2 «Сеть»). Прямой запрос — fetch с потоком (Chromium 43+) или куски Range
+ * через XHR (webOS 3). Через прокси платформы (PlatformApi.proxy; на webOS — JS-сервис) — если
+ * у запроса свои заголовки, если прямой запрос упал на CORS или если так выбрано в настройках.
  */
-export const PROXY_PORT = 47380;
-export const PROXY = 'http://127.0.0.1:' + PROXY_PORT;
-
 export interface Resp {
   status: number;
   url: string;
@@ -39,14 +36,11 @@ export class NetError extends Error {
   }
 }
 
-let proxyOk = false;
-let proxyChecked = false;
-let lunaOk = false;
-const hasStreams = typeof ReadableStream !== 'undefined' && typeof fetch !== 'undefined' && typeof Response !== 'undefined' && 'body' in Response.prototype;
+export const hasStreams = typeof ReadableStream !== 'undefined' && typeof fetch !== 'undefined' && typeof Response !== 'undefined' && 'body' in Response.prototype;
 
-function sleep(ms: number) { return new Promise<void>(function (r) { setTimeout(r, ms); }); }
+export function sleep(ms: number) { return new Promise<void>(function (r) { setTimeout(r, ms); }); }
 
-function xhr(method: string, url: string, opts: { type?: XMLHttpRequestResponseType; headers?: { [k: string]: string }; timeout?: number }): Promise<XMLHttpRequest> {
+export function xhr(method: string, url: string, opts: { type?: XMLHttpRequestResponseType; headers?: { [k: string]: string }; timeout?: number }): Promise<XMLHttpRequest> {
   return new Promise(function (resolve, reject) {
     const x = new XMLHttpRequest();
     x.open(method, url, true);
@@ -72,72 +66,35 @@ function respOfFetch(r: Response, url: string, proxied: boolean): Resp {
   return { status: r.status, url: r.url || url, proxied: proxied, header: function (n) { return r.headers.get(n) || ''; } };
 }
 
-/** Сервис может работать по Luna, даже если webOS заблокировал HTTP listen(). */
-function checkLuna(): Promise<boolean> {
-  if (!Platform.isWebOS) return Promise.resolve(false);
-  return Platform.requestService('ping', {}, 9000).then(function (r: any) {
-    lunaOk = !!r.returnValue;
-    if (lunaOk) console.log('Luna data transport available, Node', r.node || '?',
-      r.proxyReady ? 'HTTP listener ready' : 'HTTP listener not ready');
-    else console.warn('Luna ping failed', r.errorText || r.error || JSON.stringify(r));
-    return lunaOk;
-  }, function (e: any) {
-    lunaOk = false;
-    console.warn('Luna service unavailable', e && (e.message || e));
-    return false;
-  });
+/** Адрес через HTTP-прокси с протоколом сервиса webOS (service/proxy.js): base/p?u=&h= */
+export function proxyPath(base: string, url: string, headers?: { [k: string]: string } | null): string {
+  let q = base + '/p?u=' + encodeURIComponent(url);
+  if (headers && Object.keys(headers).length) q += '&h=' + encodeURIComponent(JSON.stringify(headers));
+  return q;
 }
 
 export const Net = {
-  get proxyAvailable() { return proxyOk; },
-  get lunaAvailable() { return lunaOk; },
-
-  /** Разбудить JS-сервис (на ТВ) и проверить прокси */
-  init(): Promise<boolean> {
-    Platform.startService();
-    return Net.checkProxy();
-  },
+  /** HTTP-прокси платформы работает (адреса proxyUrl годятся) */
+  get proxyAvailable() { const p = platform().proxy; return !!p && p.available; },
+  /** Проверка прокси уже была (или прокси нет вовсе) */
+  get checked() { const p = platform().proxy; return !p || p.checked; },
+  /** Ключ строки состояния прокси для настроек; '' — у платформы прокси нет */
+  proxyState(): string { const p = platform().proxy; return p ? p.state() : ''; },
 
   checkProxy(): Promise<boolean> {
-    if (Platform.isWebOS) Platform.startService();
-    const tries = Platform.isWebOS ? 6 : 1;
-    let i = 0;
-    function attempt(): Promise<boolean> {
-      return xhr('GET', PROXY + '/ping', { timeout: 1500 }).then(function (x) {
-        proxyOk = x.status === 200 && x.responseText.indexOf('"ok":true') >= 0;
-        console.log('proxy', proxyOk ? 'ok' : 'bad answer ' + x.status);
-        // UA браузера ТВ — сервису: им он подписывает запросы, которые делает сам (программа, Luna-поток)
-        if (proxyOk && typeof navigator !== 'undefined') xhr('GET', PROXY + '/ua?v=' + encodeURIComponent(navigator.userAgent), { timeout: 3000 }).then(null, function () { /* */ });
-        proxyChecked = true;
-        if (proxyOk) return true;
-        return checkLuna().then(function () { return false; });
-      }, function () {
-        if (++i < tries) return sleep(500).then(attempt);
-        proxyOk = false;
-        proxyChecked = true;
-        console.warn('HTTP proxy absent; checking Luna transport');
-        return checkLuna().then(function () { return false; });
-      });
-    }
-    return attempt();
+    const p = platform().proxy;
+    return p ? p.check() : Promise.resolve(false);
   },
 
   /** Адрес через прокси с заголовками */
   proxyUrl(url: string, headers?: { [k: string]: string } | null): string {
-    // User-Agent — тот же, что у прямых запросов браузера ТВ (провайдеры считают устройства по UA);
-    // свой UA канала из плейлиста важнее
-    const h: { [k: string]: string } = {};
-    let hasUa = false;
-    if (headers) for (const k in headers) { h[k] = headers[k]; if (k.toLowerCase() === 'user-agent') hasUa = true; }
-    if (!hasUa && typeof navigator !== 'undefined' && navigator.userAgent) h['User-Agent'] = navigator.userAgent;
-    let u = PROXY + '/p?u=' + encodeURIComponent(url);
-    if (Object.keys(h).length) u += '&h=' + encodeURIComponent(JSON.stringify(h));
-    return u;
+    const p = platform().proxy;
+    return p ? p.url(url, headers) : url;
   },
 
   /** Нужен ли прокси запросу с такими заголовками */
   wantProxy(headers?: { [k: string]: string } | null): boolean {
-    if (!proxyOk) return false;
+    if (!Net.proxyAvailable) return false;
     const m = Prefs.proxyMode;
     if (m === 1) return true;
     if (m === 2) return false;
@@ -153,7 +110,7 @@ export const Net = {
     const first = via ? Net.streamProxy(url, opts, onChunk) : Net.streamDirect(url, opts, onChunk);
     return first.then(null, function (e: any) {
       // CORS и прочие сетевые ошибки прямого запроса — второй заход через прокси (он перепроверит сервис)
-      if (!via && Prefs.proxyMode !== 2 && e instanceof NetError && (e.code === 'network' || e.code === 'need_service')) {
+      if (!via && Prefs.proxyMode !== 2 && platform().proxy && e instanceof NetError && (e.code === 'network' || e.code === 'need_service')) {
         return Net.streamProxy(url, opts, onChunk);
       }
       throw e;
@@ -169,27 +126,9 @@ export const Net = {
   },
 
   streamProxy(url: string, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
-    // На LG локальный TCP-порт может быть запрещён: используем системную шину,
-    // которой для передачи M3U/XMLTV не нужен HTTP-сервер на телевизоре.
-    if (!proxyOk) {
-      if (typeof document === 'undefined') return Promise.reject(new NetError('need_service'));
-      if (lunaOk) return streamLuna(url, opts, onChunk);
-      if (Platform.isWebOS) return checkLuna().then(function (ok) {
-        if (!ok) throw new NetError('need_service');
-        return streamLuna(url, opts, onChunk);
-      });
-      return Net.checkProxy().then(function (ok) {
-        if (!ok) throw new NetError('need_service');
-        return Net.streamProxy(url, opts, onChunk);
-      });
-    }
-    if (hasStreams) {
-      const h: { [k: string]: string } = {};
-      if (opts.etag) h['If-None-Match'] = opts.etag;
-      if (opts.lastModified) h['If-Modified-Since'] = opts.lastModified;
-      return fetchStream(Net.proxyUrl(url, opts.headers), h, true, opts, onChunk);
-    }
-    return sessionStream(url, opts, onChunk);
+    const p = platform().proxy;
+    if (!p) return Promise.reject(new NetError('need_service'));
+    return p.stream(url, opts, onChunk);
   },
 
   /** Небольшой текст целиком */
@@ -203,18 +142,13 @@ export const Net = {
       });
     };
     return go(via).then(null, function (e) {
-      if (!via && proxyOk && Prefs.proxyMode !== 2 && e instanceof NetError && e.code === 'network') return go(true);
+      if (!via && Net.proxyAvailable && Prefs.proxyMode !== 2 && e instanceof NetError && e.code === 'network') return go(true);
       throw e;
     });
   },
-
-  get checked() { return proxyChecked; },
-
-  /** Воркер: состояние прокси — от основного потока */
-  setProxy(ok: boolean) { proxyOk = ok; proxyChecked = true; },
 };
 
-function checkStatus(r: Resp, opts: StreamOpts) {
+export function checkStatus(r: Resp, opts: StreamOpts) {
   Clock.syncWith(r.header('Date'));
   if (r.status === 304) return;
   if (r.status === 0) throw new NetError('network', 0);
@@ -222,68 +156,8 @@ function checkStatus(r: Resp, opts: StreamOpts) {
   if (opts.onResponse) opts.onResponse(r);
 }
 
-/** Бинарный ответ Node-сервиса по Luna; base64 блоками до 32 КБ. */
-function streamLuna(url: string, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
-  console.log('net luna', url.slice(0, 160));
-  let session = '';
-  let read = 0;
-  function close() {
-    if (!session) return;
-    const id = session;
-    session = '';
-    Platform.requestService('streamClose', { id: id }, 5000).then(function () { /* */ }, function () { /* */ });
-  }
-  return Platform.requestService('streamOpen', {
-    url: url, headers: opts.headers || {}, etag: opts.etag || '', lastModified: opts.lastModified || '',
-  }, 35000).then(function (o: any): Promise<Resp> {
-    if (!o.returnValue || !o.id) {
-      console.warn('Luna streamOpen failed', o.error || o.errorText || JSON.stringify(o));
-      throw new NetError('network');
-    }
-    session = String(o.id);
-    const hd: { [k: string]: string } = o.headers || {};
-    const response: Resp = {
-      status: o.status || 0, url: o.url || url, proxied: true,
-      header: function (name) { return hd[name.toLowerCase()] || ''; },
-    };
-    checkStatus(response, opts);
-    if (response.status === 304 || o.end) return Promise.resolve(response);
-    const total = parseInt(hd['content-length'] || '0', 10) || 0;
-    function next(): Promise<Resp> {
-      if (opts.cancelled && opts.cancelled()) return Promise.resolve(response);
-      return Platform.requestService('streamRead', { id: session }, 60000).then(function (part: any) {
-        if (!part.returnValue) {
-          console.warn('Luna streamRead failed', part.error || part.errorText || 'unknown');
-          throw new NetError('network');
-        }
-        const binary = atob(part.data || '');
-        const chunk = new Uint8Array(binary.length);
-        for (let j = 0; j < binary.length; j++) chunk[j] = binary.charCodeAt(j);
-        read += chunk.length;
-        if (opts.onProgress) opts.onProgress(read, total);
-        return Promise.resolve(chunk.length ? onChunk(chunk) : undefined).then(function () {
-          if (part.end) {
-            if (part.error) { console.warn('Luna upstream error', part.error); throw new NetError('network'); }
-            return response;
-          }
-          return next();
-        });
-      });
-    }
-    return next();
-  }).then(function (r) {
-    close();
-    return r;
-  }, function (e: any) {
-    close();
-    if (e instanceof NetError) throw e;
-    console.warn('Luna transfer error', e && (e.message || e));
-    throw new NetError('network');
-  });
-}
-
 /** Promise с пределом времени: не уложился — NetError('timeout') */
-function within<T>(p: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
+export function within<T>(p: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
   return new Promise<T>(function (resolve, reject) {
     const t = setTimeout(function () { if (onTimeout) onTimeout(); reject(new NetError('timeout')); }, ms);
     p.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
@@ -291,7 +165,7 @@ function within<T>(p: Promise<T>, ms: number, onTimeout?: () => void): Promise<T
 }
 
 /** fetch с потоком (Chromium 43+): ответ — не дольше 30 с, пауза в данных — не дольше 60 с */
-function fetchStream(url: string, headers: { [k: string]: string }, proxied: boolean, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
+export function fetchStream(url: string, headers: { [k: string]: string }, proxied: boolean, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
   console.log('net', proxied ? 'proxy' : 'direct', url.slice(0, 160));
   return within(fetch(url, { headers: headers, cache: 'no-store' }), 30000).then(function (res) {
     let st = res.status;
@@ -328,8 +202,8 @@ function fetchStream(url: string, headers: { [k: string]: string }, proxied: boo
 const RANGE = 2 * 1024 * 1024;
 const WHOLE_MAX = 64 * 1024 * 1024;
 
-/** Куски Range (webOS 3 без потоков): сервер без Range — ответ целиком (до 64 МБ) */
-function rangeStream(url: string, headers: { [k: string]: string }, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
+/** Куски Range (webOS 3 без потоков): сервер без Range — ответ целиком (до 64 МБ); Range запрещён (CORS) — progressiveStream */
+export function rangeStream(url: string, headers: { [k: string]: string }, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
   let off = 0;
   let total = -1;
   let resp: Resp | null = null;
@@ -364,39 +238,78 @@ function rangeStream(url: string, headers: { [k: string]: string }, opts: Stream
       });
     });
   }
-  return next();
-}
-
-/** Сессия прокси: /s/open, затем /s/read кусками (webOS 3 через JS-сервис) */
-function sessionStream(url: string, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
-  let q = PROXY + '/s/open?u=' + encodeURIComponent(url);
-  if (opts.headers && Object.keys(opts.headers).length) q += '&h=' + encodeURIComponent(JSON.stringify(opts.headers));
-  if (opts.etag) q += '&etag=' + encodeURIComponent(opts.etag);
-  if (opts.lastModified) q += '&lm=' + encodeURIComponent(opts.lastModified);
-  return xhr('GET', q, { timeout: 40000 }).then(function (x) {
-    const o = JSON.parse(x.responseText || '{}');
-    if (!o.id && !o.status) throw new NetError('network', 0);
-    const hd: { [k: string]: string } = o.headers || {};
-    const r: Resp = { status: o.status, url: o.url || url, proxied: true, header: function (n) { return hd[n.toLowerCase()] || ''; } };
-    checkStatus(r, opts);
-    if (r.status === 304 || !o.id) return r;
-    const total = parseInt(hd['content-length'] || '0', 10) || 0;
-    let read = 0;
-    function next(): Promise<Resp> {
-      if (opts.cancelled && opts.cancelled()) { xhr('GET', PROXY + '/s/close?id=' + o.id, {}).then(null, function () { /* */ }); return Promise.resolve(r); }
-      return xhr('GET', PROXY + '/s/read?id=' + o.id + '&max=' + (2 * 1024 * 1024), { type: 'arraybuffer', timeout: 60000 }).then(function (y) {
-        if (y.status !== 200) throw new NetError('network', 0);
-        const buf = new Uint8Array(y.response as ArrayBuffer);
-        const end = y.getResponseHeader('X-End') === '1';
-        const err = y.getResponseHeader('X-Error');
-        read += buf.length;
-        if (opts.onProgress) opts.onProgress(read, total);
-        return Promise.resolve(buf.length ? onChunk(buf) : undefined).then(function () {
-          if (end) { if (err) throw new NetError('network', 0); return r; }
-          return next();
-        });
-      });
-    }
-    return next();
+  return next().then(null, function (e) {
+    // Range и условные заголовки под CORS — «непростые»: браузер сначала шлёт OPTIONS, а многие
+    // серверы его не умеют (так в воркере из Blob на webOS 3: там CORS действует, в странице file:// — нет).
+    // Первый кусок не пришёл — один простой запрос, читаемый по ходу загрузки (без 304)
+    if (resp || !(e instanceof NetError) || e.code !== 'network') throw e;
+    console.log('net range refused, progressive', url.slice(0, 120));
+    return progressiveStream(url, opts, onChunk);
   });
 }
+
+const PROGRESSIVE_MAX = 128 * 1024 * 1024;
+const PROGRESSIVE_PIECE = 512 * 1024;
+
+/**
+ * Поток без fetch и без Range: XHR с текстом в «x-user-defined» — каждый байт ответа становится
+ * символом (код & 0xFF), а responseText растёт по ходу загрузки, так что разбор идёт параллельно.
+ * Только простой GET (без своих заголовков) — проходит CORS без OPTIONS. Цена — весь ответ копится
+ * строкой (сжатый файл, ~2 байта на байт), поэтому предел — PROGRESSIVE_MAX.
+ */
+export function progressiveStream(url: string, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise<void> | void): Promise<Resp> {
+  return new Promise<Resp>(function (resolve, reject) {
+    const x = new XMLHttpRequest();
+    let resp: Resp | null = null;
+    let pos = 0, total = 0, loaded = false, busy = false, over = false, last = Date.now();
+    function fail(e: any) {
+      if (over) return;
+      over = true;
+      clearInterval(watch);
+      try { x.abort(); } catch (er) { /* */ }
+      reject(e);
+    }
+    function head(): boolean {
+      if (resp) return true;
+      if (x.readyState < 2) return false;
+      resp = respOfXhr(x, url, false);
+      total = parseInt(x.getResponseHeader('Content-Length') || '0', 10) || 0;
+      try { checkStatus(resp, opts); } catch (e) { fail(e); return false; }
+      return true;
+    }
+    function pump() {
+      if (busy || over || !head()) return;
+      if (opts.cancelled && opts.cancelled()) { over = true; clearInterval(watch); try { x.abort(); } catch (e) { /* */ } resolve(resp!); return; }
+      const t = x.responseText || '';
+      if (t.length > PROGRESSIVE_MAX) { fail(new NetError('need_service')); return; }
+      if (pos >= t.length) {
+        if (loaded) { over = true; clearInterval(watch); resolve(resp!); }
+        return;
+      }
+      const end = Math.min(t.length, pos + PROGRESSIVE_PIECE);
+      const buf = new Uint8Array(end - pos);
+      for (let i = pos; i < end; i++) buf[i - pos] = t.charCodeAt(i) & 0xff;
+      pos = end;
+      last = Date.now();
+      if (opts.onProgress) opts.onProgress(pos, total);
+      busy = true;
+      Promise.resolve(onChunk(buf)).then(function () { busy = false; pump(); }, function (e) { busy = false; fail(e); });
+    }
+    // пауза в данных — не дольше 60 с (как у fetchStream)
+    const watch = setInterval(function () { if (!loaded && Date.now() - last > 60000) fail(new NetError('timeout')); }, 5000);
+    x.open('GET', url, true);
+    x.overrideMimeType('text/plain; charset=x-user-defined');
+    x.onreadystatechange = function () { if (x.readyState >= 2) head(); };
+    x.onprogress = function () { last = Date.now(); pump(); };
+    x.onload = function () {
+      loaded = true;
+      // 304 и пустой ответ — без кусков
+      if (!head()) return;
+      if (x.status === 304 || x.status === 0) { if (x.status === 0) fail(new NetError('network', 0)); else { over = true; clearInterval(watch); resolve(resp!); } return; }
+      pump();
+    };
+    x.onerror = function () { fail(new NetError('network', 0)); };
+    x.send();
+  });
+}
+

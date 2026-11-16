@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { gzipSync } from 'fflate';
-import { M3uParser, RawChannel, parseAttrs, epgUrls } from '../src/data/m3u';
-import { Names } from '../src/data/names';
-import { Unpacker } from '../src/data/streams';
+import { M3uParser, RawChannel, parseAttrs, epgUrls } from '../src/core/data/m3u';
+import { Names } from '../src/core/data/names';
+import { Unpacker } from '../src/core/data/streams';
 
 const list = `#EXTM3U url-tvg="http://epg.example/epg.xml.gz" catchup="shift" catchup-days="3"
 #EXTINF:-1 tvg-id="first" tvg-logo="http://logo/1.png" group-title="Новости",Первый HD

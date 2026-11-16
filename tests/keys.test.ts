@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Keys, Scheduler } from '../src/ui/keys';
-import { Layer } from '../src/ui/layer';
+import { Keys, Scheduler } from '../src/core/ui/keys';
+import { Layer } from '../src/core/ui/layer';
 
 /** Поддельные часы и таймеры */
 class Fake implements Scheduler {

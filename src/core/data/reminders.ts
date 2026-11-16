@@ -1,6 +1,6 @@
-import { Clock } from '../core/clock';
-import { Prefs } from '../core/prefs';
-import { Storage2 } from '../core/storage';
+import { Clock } from '../clock';
+import { Prefs } from '../prefs';
+import { Storage2 } from '../storage';
 import { Bus } from './bus';
 import { Channel, Playlist, Programme } from './models';
 

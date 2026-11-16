@@ -534,5 +534,13 @@
  "about_trademarks_title": "Товарные знаки",
  "about_trademarks": "LG и webOS — товарные знаки LG Electronics. Perfect TV — независимое приложение, не связанное с LG Electronics.",
  "interface_language": "Язык",
- "playlist_from_phone": "С телефона (QR)"
+ "playlist_from_phone": "С телефона (QR)",
+ "web_proxy": "Прокси",
+ "web_proxy_sub": "Для каналов со своими заголовками и серверов без CORS. Адрес — открыть приложение с ?proxy=http://адрес:порт; OK — проверить",
+ "web_proxy_mode": "Запросы через прокси",
+ "web_proxy_not_set": "Не задан",
+ "web_proxy_unavailable": "Не отвечает",
+ "web_storage": "Хранилище браузера",
+ "web_storage_sub": "Настройки — localStorage, плейлисты и программа — IndexedDB этой страницы; OK — проверить",
+ "web_need_proxy": "Сервер не разрешает запросы со страниц (CORS). Откройте приложение с прокси: ?proxy=http://адрес:порт (npm run proxy или свой сервер)."
 }

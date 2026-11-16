@@ -1,8 +1,8 @@
-import { Clock } from '../core/clock';
-import { lang, languages, plural, str } from '../core/lang';
-import { Net } from '../core/net';
-import { Platform } from '../core/platform';
-import { Prefs } from '../core/prefs';
+import { Clock } from '../clock';
+import { lang, languages, plural, str } from '../lang';
+import { Net } from '../net';
+import { platform } from '../platform';
+import { Prefs } from '../prefs';
 import { Bus } from '../data/bus';
 import { ALL_KEY, Catalog, FAV_KEY } from '../data/catalog';
 import { CatchupUrl } from '../data/catchup';
@@ -229,7 +229,7 @@ export class Tv {
     if (code === 'network') return str('no_connection_to_the_server');
     if (code === 'format') return str('the_file_does_not_look_like_an_m3u');
     if (code === 'empty') return str('the_playlist_has_no_channels');
-    if (code === 'need_service') return str('need_service');
+    if (code === 'need_service') return str(platform().labels.needProxy);
     if (code === 'storage') return str('storage_error');
     if (code === 'timeout') return str('timeout_error');
     if (code.indexOf('http_') === 0) return str('server_error_x', code.substring(5));
@@ -272,12 +272,15 @@ export class Tv {
     const self = this;
     let layer: FormLayer | null = null;
     const cur = languages().filter(function (l) { return l.code === lang(); })[0];
+    // «С телефона» — только где у платформы есть приём плейлиста по QR
+    const hasQr = !!platform().qr;
+    const buttons = hasQr ? [str('add'), str('playlist_from_phone'), str('settings')] : [str('add'), str('settings')];
     layer = new FormLayer(this.ui, str('add_playlist'), [
       { label: str('playlist_address'), value: values ? values[0] : '', type: 'url' },
       { label: str('name'), value: values ? values[1] : '' },
-    ], [str('add'), str('playlist_from_phone'), str('settings')], function (i, v) {
-      if (i === 2) { self.remove(layer!); self.openSettings(); return; }
-      if (i === 1) { self.wizardQr(function () { self.remove(layer!); }); return; }
+    ], buttons, function (i, v) {
+      if (i === buttons.length - 1) { self.remove(layer!); self.openSettings(); return; }
+      if (hasQr && i === 1) { self.wizardQr(function () { self.remove(layer!); }); return; }
       if (!v[0]) { self.toast.show(str('enter_the_address')); return; }
       self.remove(layer!);
       self.repo.addPlaylist(v[1] || str('playlist'), v[0]).then(function (p) { self.open(p); });
@@ -411,7 +414,7 @@ export class Tv {
       this.backTime = 0;
       if (back) { this.leaveLocked(back); return; }
       this.playback.stop();
-      Platform.exit();
+      platform().exit();
       return;
     }
     this.backTime = t;
@@ -1388,7 +1391,7 @@ export class Tv {
     this.sleepAt = Date.now() + next * 60000;
     const self = this;
     this.sleepTimers.push(window.setTimeout(function () { self.toast.show(str('sleep_timer_in_a_minute')); }, (next - 1) * 60000));
-    this.sleepTimers.push(window.setTimeout(function () { self.sleepAt = 0; self.playback.stop(); Platform.exit(); }, next * 60000));
+    this.sleepTimers.push(window.setTimeout(function () { self.sleepAt = 0; self.playback.stop(); platform().exit(); }, next * 60000));
   }
 
   private menuAction(ch: Channel, a: string) {

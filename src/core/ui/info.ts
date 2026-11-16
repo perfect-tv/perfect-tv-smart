@@ -1,6 +1,6 @@
-import { Clock } from '../core/clock';
-import { str } from '../core/lang';
-import { Prefs } from '../core/prefs';
+import { Clock } from '../clock';
+import { str } from '../lang';
+import { Prefs } from '../prefs';
 import { Channel, Programme } from '../data/models';
 import { Anim, el, icon, setText, visible } from './dom';
 import { Fmt } from './fmt';

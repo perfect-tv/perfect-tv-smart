@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Cells } from '../src/ui/cells';
-import { Programme } from '../src/data/models';
-import { merge } from '../src/data/repo';
+import { Cells } from '../src/core/ui/cells';
+import { Programme } from '../src/core/data/models';
+import { merge } from '../src/core/data/repo';
 
 const p = (start: number, stop: number): Programme => ({ start, stop, title: 'p' + start, subTitle: '', desc: '', category: '', icon: '' });
 const h = 1700000000 - 1700000000 % 1800;

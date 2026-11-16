@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { qrMatrix } from '../src/ui/qrcode';
+import { qrMatrix } from '../src/core/ui/qrcode';
 
 describe('QR ввода плейлиста', function () {
   it('версия 5-L, позиции искателей и формат', function () {

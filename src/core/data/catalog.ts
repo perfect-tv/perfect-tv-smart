@@ -1,4 +1,4 @@
-import { Prefs } from '../core/prefs';
+import { Prefs } from '../prefs';
 import { Channel, Playlist } from './models';
 import { UserData } from './userdata';
 

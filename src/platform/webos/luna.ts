@@ -1,6 +1,6 @@
 /**
- * Платформа webOS: Luna (через PalmServiceBridge — то же, что делает webOSTV.js), JS-сервис,
- * выход в лаунчер, курсор Magic Remote. В браузере — заглушки.
+ * webOS: системная шина Luna (через PalmServiceBridge — то же, что делает webOSTV.js), запуск
+ * JS-сервиса, выход в лаунчер, курсор Magic Remote. В браузере — заглушки.
  */
 declare const PalmSystem: any;
 declare const PalmServiceBridge: any;
@@ -77,7 +77,7 @@ if (typeof document !== 'undefined') {
 
 let serviceStarted = false;
 
-export const Platform = {
+export const Luna = {
   isWebOS: isWebOS,
   luna: luna,
   requestService: requestService,
@@ -122,6 +122,4 @@ export const Platform = {
   get cursorVisible() { return cursorVisible; },
   onCursor(l: (v: boolean) => void) { cursorListeners.push(l); },
 
-  /** Не гасить экран во время просмотра (на ТВ — держит сама система при играющем видео) */
-  keepAwake(_on: boolean) { /* */ },
 };

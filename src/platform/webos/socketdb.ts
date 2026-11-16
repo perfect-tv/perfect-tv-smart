@@ -3,7 +3,7 @@
  * No IndexedDB/localStorage writes. Works in main window and EPG Worker.
  * ES5 output; no URL, fetch, TextEncoder, Buffer, or modern WebSocket APIs.
  */
-import { KeyRange, FileRecord } from './filedb';
+import { FileRecord, KeyRange } from '../../core/data/db';
 
 const WS_URL = 'ws://127.0.0.1:47380/db';
 let socket: WebSocket | null = null;

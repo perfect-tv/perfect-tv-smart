@@ -1,4 +1,4 @@
-import { Prefs } from '../core/prefs';
+import { Prefs } from '../prefs';
 
 /**
  * Палитра, масштаб и рисование на Canvas (docs/design.md).

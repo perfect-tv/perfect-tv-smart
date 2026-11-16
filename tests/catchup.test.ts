@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CatchupUrl, TzFn } from '../src/data/catchup';
+import { CatchupUrl, TzFn } from '../src/core/data/catchup';
 
 const MSK: TzFn = () => 180;
 const UTC: TzFn = () => 0;

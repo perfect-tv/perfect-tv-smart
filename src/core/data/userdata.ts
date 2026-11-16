@@ -1,4 +1,4 @@
-import { Storage2 } from '../core/storage';
+import { Storage2 } from '../storage';
 
 /**
  * Пользовательские данные плейлиста (SQLite3 (settings), ключи `ud_<плейлист>_<вид>`): избранное

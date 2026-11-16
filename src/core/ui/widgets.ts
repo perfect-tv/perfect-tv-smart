@@ -1,4 +1,4 @@
-import { str } from '../core/lang';
+import { str } from '../lang';
 import { Catalog } from '../data/catalog';
 import { Channel } from '../data/models';
 import { Anim, el, setText, visible } from './dom';
