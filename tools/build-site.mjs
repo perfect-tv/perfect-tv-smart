@@ -1,8 +1,10 @@
 // Сайт perfect-tv.github.io в site-out/: в корне — само приложение (сборка platform browser: браузер,
-// VIDAA, Titan OS, MSX), рядом — страницы из site/ (about/ — что это и как поставить на ТВ).
+// VIDAA, Titan OS, MSX), рядом — страницы из site/ (about/ — что это и как поставить на ТВ), код для
+// обновления пакетов webOS и Tizen без переустановки — webos/ и tizen/.
 // Публикует .github/workflows/release.yml (по тегу v<версия>).
 // Запуск: node tools/build-site.mjs   (SITE_CNAME=домен — свой домен для GitHub Pages)
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -21,6 +23,25 @@ fs.writeFileSync(path.join(out, '.nojekyll'), '');
 if (process.env.SITE_CNAME) fs.writeFileSync(path.join(out, 'CNAME'), process.env.SITE_CNAME.trim() + '\n');
 const version = JSON.parse(fs.readFileSync(path.join(root, 'appinfo.json'), 'utf8')).version;
 fs.writeFileSync(path.join(out, 'version.json'), JSON.stringify({ version: version, built: new Date().toISOString() }) + '\n');
+
+// Код для обновления без переустановки (docs/TZ.md, «Обновление без переустановки»): /webos/ и
+// /tizen/ — app.js и hls.min.js той же версии, что в пакетах релиза, и version.json: версия, нужные
+// коду протокол оболочки (SHELL в src/core/codever.ts) и API сервиса webOS (SERVICE_API в
+// service/proxy.js), sha256 файлов — их сверяют загрузчик (Tizen) и сервис (webOS).
+const shell = Number(/export const SHELL = (\d+)/.exec(fs.readFileSync(path.join(root, 'src/core/codever.ts'), 'utf8'))[1]);
+const serviceApi = Number(/var SERVICE_API = (\d+)/.exec(fs.readFileSync(path.join(root, 'service/proxy.js'), 'utf8'))[1]);
+for (const [plat, distDir, service] of [['webos', 'dist', serviceApi], ['tizen', 'dist-tizen', 0]]) {
+  execFileSync(process.execPath, [path.join(root, 'tools/build.mjs'), '--platform', plat], { stdio: 'inherit' });
+  const dir = path.join(out, plat);
+  fs.mkdirSync(dir, { recursive: true });
+  const files = {};
+  for (const f of ['hls.min.js', 'app.js']) {
+    const buf = fs.readFileSync(path.join(root, distDir, f));
+    fs.writeFileSync(path.join(dir, f), buf);
+    files[f] = { sha256: crypto.createHash('sha256').update(buf).digest('hex'), size: buf.length };
+  }
+  fs.writeFileSync(path.join(dir, 'version.json'), JSON.stringify({ version: version, shell: shell, service: service, files: files }, null, 1) + '\n');
+}
 
 let n = 0, size = 0;
 (function walk(d) { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); const s = fs.statSync(p); if (s.isDirectory()) walk(p); else { n++; size += s.size; } } })(out);

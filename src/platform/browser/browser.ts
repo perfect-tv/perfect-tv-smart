@@ -41,4 +41,5 @@ export const Browser: PlatformApi = {
   nativePlayer: null,
   storageBytes: webStorageBytes,
   labels: WEB_LABELS,
+  code: null,
 };

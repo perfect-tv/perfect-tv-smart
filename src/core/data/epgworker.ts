@@ -54,7 +54,10 @@ function candidates(): (() => Worker)[] {
     const U = w.URL || w.webkitURL;
     return new Worker(U.createObjectURL(new Blob([src], { type: 'application/javascript' })));
   });
-  out.push(function () { return new Worker('epg-worker.js'); });
+  // файл воркера — из пакета: у кода, скачанного с сайта (обновление без переустановки), он может
+  // быть старой версии с другим протоколом — тогда без него (разбор в основном потоке)
+  const l = (window as any).ptvLoader;
+  if (!l || l.source !== 'downloaded') out.push(function () { return new Worker('epg-worker.js'); });
   return out;
 }
 

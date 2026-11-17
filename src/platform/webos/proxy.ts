@@ -13,12 +13,15 @@ export const PROXY = 'http://127.0.0.1:' + PROXY_PORT;
 let proxyOk = false;
 let proxyChecked = false;
 let lunaOk = false;
+/** Версия API сервиса (service/service.js, SERVICE_API): с ней сверяется код с сайта; 0 — неизвестно */
+let serviceApi = 0;
 
 /** Сервис может работать по Luna, даже если webOS заблокировал HTTP listen(). */
 function checkLuna(): Promise<boolean> {
   if (!Luna.isWebOS) return Promise.resolve(false);
   return Luna.requestService('ping', {}, 9000).then(function (r: any) {
     lunaOk = !!r.returnValue;
+    if (lunaOk && r.api) serviceApi = r.api;
     if (lunaOk) console.log('Luna data transport available, Node', r.node || '?',
       r.proxyReady ? 'HTTP listener ready' : 'HTTP listener not ready');
     else console.warn('Luna ping failed', r.errorText || r.error || JSON.stringify(r));
@@ -37,6 +40,7 @@ function check(): Promise<boolean> {
   function attempt(): Promise<boolean> {
     return xhr('GET', PROXY + '/ping', { timeout: 1500 }).then(function (x) {
       proxyOk = x.status === 200 && x.responseText.indexOf('"ok":true') >= 0;
+      if (proxyOk) { try { serviceApi = JSON.parse(x.responseText).api || 0; } catch (e) { /* */ } }
       console.log('proxy', proxyOk ? 'ok' : 'bad answer ' + x.status);
       // UA браузера ТВ — сервису: им он подписывает запросы, которые делает сам (программа, Luna-поток)
       if (proxyOk && typeof navigator !== 'undefined') xhr('GET', PROXY + '/ua?v=' + encodeURIComponent(navigator.userAgent), { timeout: 3000 }).then(null, function () { /* */ });
@@ -90,12 +94,13 @@ function stream(u: string, opts: StreamOpts, onChunk: (b: Uint8Array) => Promise
   return sessionStream(u, opts, onChunk);
 }
 
-export const WebosProxy: ProxyApi & { readonly luna: boolean } = {
+export const WebosProxy: ProxyApi & { readonly luna: boolean; readonly api: number } = {
   get available() { return proxyOk; },
   get checked() { return proxyChecked; },
   get base() { return proxyOk ? PROXY : ''; },
   /** HTTP нет, но сервис отвечает по Luna */
   get luna() { return lunaOk; },
+  get api() { return serviceApi; },
   state: function () { return proxyOk ? 'proxy_running' : lunaOk ? 'proxy_luna' : 'proxy_absent'; },
   check: check,
   url: url,

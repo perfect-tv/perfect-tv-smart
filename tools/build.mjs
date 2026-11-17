@@ -88,6 +88,14 @@ async function build() {
   }
   fs.mkdirSync(dist, { recursive: true });
   fs.writeFileSync(path.join(dist, 'app.js'), app);
+  // загрузчик оболочки (обновление кода с сайта без переустановки): index.html запускает его, а он — app.js
+  const loaderEntry = pdir + '/loader.ts';
+  let loaderNote = '';
+  if (fs.existsSync(path.join(root, loaderEntry))) {
+    const loader = await bundle(loaderEntry);
+    fs.writeFileSync(path.join(dist, 'loader.js'), loader);
+    loaderNote = `, loader.js ${(loader.length / 1024).toFixed(0)} KB`;
+  }
   if (useWorker) fs.writeFileSync(path.join(dist, 'epg-worker.js'), workerJs);
   else fs.rmSync(path.join(dist, 'epg-worker.js'), { force: true }); // воркер версий до 1.0.8
   copy(path.join(root, 'node_modules/hls.js/dist/hls.min.js'), path.join(dist, 'hls.min.js'));
@@ -98,7 +106,7 @@ async function build() {
   if (fs.existsSync(cfg)) fs.writeFileSync(path.join(dist, 'config.xml'), fs.readFileSync(cfg, 'utf8').replace(/@VERSION@/g, JSON.parse(fs.readFileSync(path.join(root, 'appinfo.json'), 'utf8')).version));
   copy(path.join(root, 'LICENSE'), path.join(dist, 'LICENSE'));   // GPL 3.0: текст лицензии — вместе с приложением
   for (const f of fs.readdirSync(path.join(root, 'assets'))) copy(path.join(root, 'assets', f), path.join(dist, f));
-  console.log(`${path.relative(root, dist)}/app.js ${(app.length / 1024).toFixed(0)} KB${useWorker ? ` (из них воркер ${(workerJs.length / 1024).toFixed(0)} KB)` : ''}${serviceNote}, ${Date.now() - t0} ms`);
+  console.log(`${path.relative(root, dist)}/app.js ${(app.length / 1024).toFixed(0)} KB${useWorker ? ` (из них воркер ${(workerJs.length / 1024).toFixed(0)} KB)` : ''}${serviceNote}${loaderNote}, ${Date.now() - t0} ms`);
 }
 
 if (watch) {

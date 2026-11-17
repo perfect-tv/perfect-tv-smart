@@ -22,6 +22,7 @@ import type { Tv } from './tv';
 import { U } from './u';
 import { restyle } from './style';
 import { hintRow } from './widgets';
+import { CodeUpdate } from '../codeupdate';
 
 interface SItem {
   name: string;
@@ -507,9 +508,34 @@ export class SettingsLayer implements Layer {
     const link = function (name: string, desc: string, url: string): SItem[] {
       return url ? [{ name: name, desc: desc, value: function () { return url.replace(/^https?:\/\//, ''); }, action: function () { qr(name, url); } }] : [];
     };
+    const self = this;
     const items: SItem[] = [
       { name: 'Perfect TV', value: function () { return str('about_version', About.version); }, desc: str('about_sub') },
     ];
+    // обновление кода с сайта без переустановки (webOS, Tizen — оболочка с загрузчиком)
+    if (CodeUpdate.available) {
+      const label: { [s: string]: () => string } = {
+        idle: function () { return str('code_idle'); },
+        checking: function () { return str('code_checking'); },
+        downloading: function () { return str('code_downloading', CodeUpdate.found); },
+        latest: function () { return str('code_latest'); },
+        ready: function () { return str('code_ready', CodeUpdate.found); },
+        shell: function () { return str('code_need_package', CodeUpdate.found); },
+        service: function () { return str('code_need_package', CodeUpdate.found); },
+        error: function () { return str('code_error'); },
+      };
+      items.push({ name: str('code_update'), desc: str('code_update_sub'),
+        value: function () { const f = label[CodeUpdate.status]; return f ? f() : ''; },
+        action: function () {
+          if (CodeUpdate.status === 'ready') { CodeUpdate.restart(); return; }
+          CodeUpdate.check().then(function () { self.refresh(); });
+          self.refresh();
+        } });
+      items.push({ name: str('code_auto'), desc: str('code_auto_sub'), values: [str('off'), str('on')],
+        index: function () { return Prefs.codeAuto ? 1 : 0; }, pick: function (i) { Prefs.codeAuto = i === 1; } });
+      if (CodeUpdate.downloaded) items.push({ name: str('code_builtin'), desc: str('code_builtin_sub', CodeUpdate.builtin),
+        action: function () { CodeUpdate.reset().then(function () { tv.toast.show(str('code_builtin_done', CodeUpdate.builtin)); }); } });
+    }
     return items
       .concat(link(str('about_telegram'), str('about_telegram_sub'), About.telegram))
       .concat(link(str('about_donate'), str('about_donate_sub'), About.donate))

@@ -1,4 +1,6 @@
 import './polyfills';
+import { CodeUpdate } from './codeupdate';
+import { str } from './lang';
 import { Log } from './log';
 import { platform } from './platform';
 import { Prefs } from './prefs';
@@ -16,6 +18,7 @@ function initUi() {
   const ui = document.getElementById('ui') as HTMLElement;
   const tv = new Tv(video, ui);
   (window as any).tv = tv;
+  CodeUpdate.onChange(function (s) { if (s === 'ready') tv.toast.show(str('code_ready_toast', CodeUpdate.found)); });
 
   document.addEventListener('keydown', function (e) {
     const t = e.target as HTMLElement;
@@ -55,6 +58,8 @@ export function startApp() {
 }
 
 function boot() {
+  // загрузчику оболочки — код поднялся (иначе откат на встроенный), затем фоновые проверки обновлений
+  CodeUpdate.start();
   Log.install();
   console.log('platform', platform().label(), 'screen', window.innerWidth + 'x' + window.innerHeight);
   U.init();

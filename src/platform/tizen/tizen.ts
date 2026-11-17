@@ -6,6 +6,7 @@ import { Cursor } from '../browser/cursor';
 import { browserName, WEB_LABELS, webStorageBytes } from '../browser/web';
 import { avplayAvailable, createAvplay } from './avplay';
 import { screenSaver } from './saver';
+import { clearTizenCode, installTizenCode } from './codestore';
 
 /**
  * Samsung Tizen TV 3.0+ (2017+, Chromium 47+; docs/TZ.md, §2 «Ядро и платформы»). Упакованное
@@ -86,4 +87,5 @@ export const Tizen: PlatformApi = {
   get nativePlayer() { return avplayAvailable() ? createAvplay : null; },
   storageBytes: webStorageBytes,
   labels: WEB_LABELS,
+  code: { dir: 'tizen', serviceApi: function () { return 0; }, install: installTizenCode, clear: clearTizenCode },
 };

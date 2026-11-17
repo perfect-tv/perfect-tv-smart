@@ -25,6 +25,9 @@ var websocket = require('./websocketdb.js');
 
 var PORT = 47380;
 var VERSION = 1;
+// Версия API сервиса для кода, скачанного с сайта (src/core/codever.ts, поле service в version.json):
+// повышать, когда приложению нужно от сервиса новое (операция, поле ответа), и выпускать пакет
+var SERVICE_API = 1;
 var server = null;
 var sessions = {};
 var nextId = 1;
@@ -320,7 +323,7 @@ function handler(req, out) {
   if (u.pathname.indexOf('/_db/') === 0) return filestore.handle(req, out);
   if (req.method === 'OPTIONS') { out.writeHead(204, cors({})); return out.end(); }
   switch (u.pathname) {
-    case '/ping': out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true, v: VERSION }));
+    case '/ping': out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true, v: VERSION, api: SERVICE_API }));
     case '/prog': return require('./progfiles.js').serve(q.s, q.x, out, cors({}), q.a, q.b, q.days === '1');
     case '/progsearch': return progSearch(req, out);
     case '/ua': setUserAgent(q.v); out.writeHead(200, cors({ 'Content-Type': 'application/json' })); return out.end(JSON.stringify({ ok: true }));
@@ -367,7 +370,7 @@ function start(port, cb) {
 
 // Те же HTTP-клиент и распаковка используются транспортом Luna (когда webOS
 // запрещает открыть локальный HTTP-порт). Не экспортируем сервер наружу.
-module.exports = { start: start, PORT: PORT, rewriteM3u8: rewriteM3u8,
+module.exports = { start: start, PORT: PORT, SERVICE_API: SERVICE_API, rewriteM3u8: rewriteM3u8,
   request: request, bodyOf: bodyOf, setUserAgent: setUserAgent };
 
 if (require.main === module) {

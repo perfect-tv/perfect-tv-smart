@@ -1,3 +1,4 @@
+import type { CodeManifest } from './codever';
 import type { RecordDb } from './data/db';
 import type { SourceMeta, WantedSet } from './data/loaders';
 import type { Resp, StreamOpts } from './net';
@@ -40,6 +41,22 @@ export interface PlatformApi {
   storageBytes(): Promise<number>;
   /** Ключи строк, где слова зависят от платформы (страница «Сеть», ошибка «нужен прокси») */
   labels: PlatformLabels;
+  /**
+   * Обновление кода с сайта без переустановки (core/codeupdate.ts): папка на сайте и версия API
+   * своего сервиса (0 — сервиса нет). null — нет (браузер и так открывает свежий сайт)
+   */
+  code: CodeChannel | null;
+}
+
+export interface CodeChannel {
+  /** Папка на сайте: https://perfect-tv.github.io/<dir>/version.json */
+  dir: string;
+  /** Версия API своего сервиса (0 — нет сервиса или неизвестна) */
+  serviceApi(): number;
+  /** Скачать версию с сайта (base — адрес папки со «/» в конце), проверить sha256 и сохранить для загрузчика */
+  install(base: string, m: CodeManifest): Promise<void>;
+  /** Забыть скачанный код: следующий запуск — встроенным */
+  clear(): Promise<void>;
 }
 
 export interface PlatformLabels {
@@ -128,6 +145,7 @@ const BARE: PlatformApi = {
   nativePlayer: null,
   storageBytes: function () { return Promise.resolve(-1); },
   labels: SERVICE_LABELS,
+  code: null,
 };
 
 let current: PlatformApi = BARE;

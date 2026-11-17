@@ -40,4 +40,15 @@ export const WebOS: PlatformApi = {
     return SocketDb.available().then(function (ok) { return ok ? SocketDb.storageBytes() : -1; });
   },
   labels: SERVICE_LABELS,
+  // код с сайта скачивает и хранит сервис (service/codestore.js): браузерное хранилище webOS переполняется
+  code: {
+    dir: 'webos',
+    serviceApi: function () { return WebosProxy.api; },
+    install: function (base, m) {
+      return Luna.requestService('codeFetch', { base: base, version: m.version, shell: m.shell, service: m.service, files: m.files }, 180000).then(function (r: any) {
+        if (!r || !r.returnValue) throw new Error(r && r.errorText || 'codeFetch failed');
+      });
+    },
+    clear: function () { return Luna.requestService('codeClear', {}, 10000).then(function () { /* */ }); },
+  },
 };

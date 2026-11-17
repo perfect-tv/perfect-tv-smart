@@ -60,6 +60,7 @@ service.register('start', function (message) {
       proxyReady: proxyReady,
       port: proxy.PORT,
       proxyError: proxyError,
+      api: proxy.SERVICE_API,
       node: process.versions && process.versions.node
     });
   });
@@ -70,7 +71,20 @@ service.register('start', function (message) {
 
 service.register('ping', function (message) {
   message.respond({ returnValue: true, port: proxy.PORT, proxyReady: proxyReady,
-    proxyError: proxyError, node: process.versions && process.versions.node, dataDir: require('./datadir.js') });
+    proxyError: proxyError, api: proxy.SERVICE_API, node: process.versions && process.versions.node, dataDir: require('./datadir.js') });
+});
+
+// Код приложения с сайта (обновление без переустановки): чтение загрузчиком, скачивание, метки
+var code = require('./codestore.js');
+code.OPS.forEach(function (op) {
+  service.register(op, function (message) {
+    code.dispatch(op, message.payload || {}, function (err, result) {
+      if (err) return message.respond({ returnValue: false, errorText: String(err.message || err) });
+      result = result || {};
+      result.returnValue = true;
+      message.respond(result);
+    });
+  });
 });
 
 // Прямой транспорт данных через системную шину. Не требует HTTP-сервера на ТВ;
