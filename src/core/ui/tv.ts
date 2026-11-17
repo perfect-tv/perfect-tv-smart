@@ -95,6 +95,8 @@ export class Tv {
   private beforeLockedGroup: string | null = null;
   private historyBeforeLocked: string[] | null = null;
   private unlockedKeys: { [k: string]: true } = {};
+  /** Плейлист и каталог, открытые до просмотра другого плейлиста в гиде (null — просмотра нет) */
+  private previewOrigin: { playlist: Playlist | null; catalog: Catalog | null } | null = null;
   private menu: MenuLayer | null = null;
   private reminderLayer: ReminderLayer | null = null;
   private sleepAt = 0;
@@ -117,7 +119,7 @@ export class Tv {
       onEnded: function () { self.onStreamEnded(); },
       onError: function (kind, detail) { self.onStreamError(kind, detail); },
       onVideoSize: function (_w, h) { if (self.state.height !== h) { self.state.height = h; self.updateInfo(); } },
-      onTracks: function () { if (self.menu) self.menu.refresh(); },
+      onTracks: function () { if (self.menu) self.menu.refresh(); if (!self.pending) self.updateInfo(); },
     });
     this.playback.audioLang = Prefs.audioLang;
     this.playback.subtitleLang = Prefs.subtitleLang;
@@ -185,6 +187,9 @@ export class Tv {
     } : undefined).then(function (err) {
       if (self.playlist !== p) return;
       self.loadStatus = '';
+      // просматриваемый плейлист (видео играет от другого) не загрузился — без окна ошибки:
+      // список пуст, выбрать другой плейлист или «Назад» (вернётся прежний)
+      if (err && self.previewOrigin) { self.toast.show(str('the_playlist_did_not_load') + ': ' + self.errorText(err)); self.guide.redraw(); return; }
       if (err) { if (first || !self.catalog || !self.catalog.channels.length) self.showError(err); else self.toast.show(self.errorText(err)); return; }
     }, function (e) {
       console.error('refresh', e);
@@ -201,9 +206,10 @@ export class Tv {
     this.repo.loadCatalog(p).then(function (cat) {
       const cur = self.state.channel;
       self.catalog = cat;
-      if (cur) { const c = cat.byKey[cur.key]; if (c) self.state.channel = c; }
+      // при просмотре другого плейлиста играющий канал — из прежнего каталога, не подменять
+      if (cur && !self.previewOrigin) { const c = cat.byKey[cur.key]; if (c) self.state.channel = c; }
       if (self.layers.indexOf(self.guide) >= 0) self.guide.reload();
-      if (first && !self.state.channel) self.startFromLast();
+      if (first && !self.state.channel && !self.previewOrigin) self.startFromLast();
     }, function (e) { console.error('reload catalog', e); self.showError('storage'); });
   }
 
@@ -392,7 +398,7 @@ export class Tv {
         if (self.numBuf) { self.applyNumber(); return; }
         if (self.seek) { self.applySeek(); return; }
         if (self.info.visible && self.state.channel && !self.pending) { self.togglePause(); return; }
-        self.openGuide();
+        self.openGuide(false, true);
       },
       long: function () { if (self.state.channel) self.openMenu(self.state.channel); },
       back: function () { self.playerBack(); },
@@ -475,7 +481,10 @@ export class Tv {
   playChannel(ch: Channel, groupKey: string | null = null, archive: number | null = null, programEnd = 0, reload = false, unlocked = false) {
     const self = this;
     const cat = this.catalog;
-    if (!unlocked && ch !== this.state.channel && cat && cat.isLocked(ch) && !this.sessionUnlocked(ch) && !this.pinPassed) {
+    // PIN-состояние (сессия, «PIN действует») относится к играющему плейлисту: при выборе канала
+    // из просматриваемого другого плейлиста оно не переносится
+    const foreign = this.previewOrigin !== null;
+    if (!unlocked && ch !== this.state.channel && cat && cat.isLocked(ch) && (foreign || (!this.sessionUnlocked(ch) && !this.pinPassed))) {
       clearTimeout(this.switchTimer);
       this.pending = null;
       const dir = this.switchDirection;
@@ -492,6 +501,16 @@ export class Tv {
     }
     clearTimeout(this.switchTimer);
     this.pending = null;
+    if (foreign) {
+      // канал выбран в просматриваемом плейлисте — он становится открытым
+      this.previewOrigin = null;
+      if (this.playlist) Prefs.lastPlaylist = this.playlist.id;
+      this.unlockedKeys = {};
+      this.pinPassed = false;
+      this.beforeLocked = null;
+      this.historyBeforeLocked = null;
+      if (unlocked && !Prefs.pinEveryTime) { this.unlockedKeys[ch.key] = true; this.unlockedKeys['g:' + ch.groupKey] = true; }
+    }
     if (ch !== this.state.channel) {
       const was = this.pinPassed;
       this.pinPassed = !!cat && cat.isLocked(ch) && (unlocked || this.pinPassed || this.sessionUnlocked(ch));
@@ -1010,6 +1029,8 @@ export class Tv {
       paused: same && pb.paused && this.pauseInfo !== null,
       error: same && this.state.error,
       engine: same && pb.engine === 'native' && this.nativeFallback ? 'NAT' : '',
+      audios: same ? pb.trackCount('audio') : 0,
+      subtitles: same ? pb.trackCount('text') : 0,
     });
     if (this.info.more && same && this.moreKey !== ch.key + ':' + (p ? p.start : 0)) this.expandInfo();
     if (show) this.info.show(Prefs.infoHide);
@@ -1030,21 +1051,75 @@ export class Tv {
 
   // ================================================================ гид, окна
 
-  openGuide(toGrid = false) {
+  /** onArchive — OK в архиве: в видах со списком программ фокус сразу на играющей передаче (в сетке — каналы) */
+  openGuide(toGrid = false, onArchive = false) {
     this.info.hide();
     if (!this.hasLayer(this.guide)) {
       this.removeAllBut([]);
       this.push(this.guide);
     }
     this.guide.open(this.state.channel, this.state.groupKey, toGrid);
+    if (onArchive && this.state.archive) this.guide.focusArchive();
   }
 
   /** Закрыть гид. Без видео гид закрывать некуда — это запрос на выход */
   closeGuide(silent = false) {
     if (!this.hasLayer(this.guide)) return;
     if (!silent && !this.hasVideo()) { this.exitRequest(); return; }
+    this.revertPlaylistPreview();
     this.removeAllBut([this.guide]);
     this.remove(this.guide);
+  }
+
+  /**
+   * Просмотр плейлиста (колонка плейлистов гида, плейлист из меню): каналы и категории в гиде
+   * меняются сразу, а видео, слои и история остаются. Закрепляется, когда включают канал
+   * (playChannel); иначе при закрытии гида или «Назад» в колонке возвращается прежний
+   * (revertPlaylistPreview). Каталог грузится — гид обновится (guide.reload).
+   */
+  previewPlaylist(p: Playlist) {
+    if (this.playlist && p.id === this.playlist.id) return;
+    // вернулись к играющему плейлисту — это отмена просмотра
+    if (this.previewOrigin && this.previewOrigin.playlist && p.id === this.previewOrigin.playlist.id) { this.revertPlaylistPreview(); this.guide.reload(); return; }
+    if (!this.previewOrigin) this.previewOrigin = { playlist: this.playlist, catalog: this.catalog };
+    this.playlist = p;
+    this.catalog = null;
+    const self = this;
+    this.repo.loadCatalog(p).then(function (cat) {
+      if (self.playlist !== p) return;
+      self.catalog = cat;
+      self.guide.reload();
+      if (!cat.channels.length || self.repo.isStale(p)) self.refreshPlaylist(p, false);
+      else self.repo.refreshEpg(p, false);
+    }, function (e) { console.error('preview catalog', e); });
+  }
+
+  /** Вернуть плейлист, открытый до просмотра (гид обновляет вызывающий); false — просмотра не было */
+  revertPlaylistPreview(): boolean {
+    const o = this.previewOrigin;
+    if (!o) return false;
+    this.previewOrigin = null;
+    this.playlist = o.playlist ? this.repo.playlist(o.playlist.id) || o.playlist : null;
+    this.catalog = o.catalog;
+    this.loadStatus = '';
+    const cur = this.state.channel;
+    if (cur && this.catalog) { const c = this.catalog.byKey[cur.key]; if (c) this.state.channel = c; }
+    return true;
+  }
+
+  /**
+   * Выбран другой плейлист (меню). Что-то играет — оно продолжает играть, пока не выберут канал:
+   * открывается гид с каналами нового плейлиста (previewPlaylist). Не играет ничего — обычная смена.
+   */
+  pickPlaylist(p: Playlist) {
+    if (!this.hasVideo()) { this.switchPlaylist(p); return; }
+    this.info.hide();
+    if (!this.hasLayer(this.guide)) { this.removeAllBut([]); this.push(this.guide); }
+    else this.removeAllBut([this.guide]);
+    const back = !!this.previewOrigin && !!this.previewOrigin.playlist && this.previewOrigin.playlist.id === p.id;
+    this.previewPlaylist(p);
+    if (back) this.guide.open(this.state.channel, this.state.groupKey);
+    else this.guide.open(null, null);
   }
 
   openHistory() {
@@ -1103,6 +1178,8 @@ export class Tv {
 
   openSettings() {
     this.info.hide();
+    // не выбранный до конца просмотр другого плейлиста отменяется: открыт тот, что играет
+    if (this.revertPlaylistPreview() && this.hasLayer(this.guide)) this.guide.open(this.state.channel, this.state.groupKey);
     const self = this;
     let layer: SettingsLayer | null = null;
     layer = new SettingsLayer(this, function (changed) {
@@ -1139,6 +1216,7 @@ export class Tv {
   }
 
   switchPlaylist(p: Playlist) {
+    this.previewOrigin = null;
     this.removeAllBut([]);
     this.playback.stop();
     this.state.channel = null;
@@ -1458,7 +1536,7 @@ export class Tv {
     layer = new ListLayer(this.ui, str('playlist'), list.map(function (p) {
       return {
         label: p.name, value: p.channelsCount > 0 ? plural('channels', p.channelsCount) : p.url,
-        action: function () { self.remove(layer!); if (!self.playlist || p.id !== self.playlist.id) self.switchPlaylist(p); },
+        action: function () { self.remove(layer!); if (!self.playlist || p.id !== self.playlist.id) self.pickPlaylist(p); },
       };
     }), function () { self.remove(layer!); });
     this.push(layer);

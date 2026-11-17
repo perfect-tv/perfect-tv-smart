@@ -117,6 +117,28 @@ export function roundRect(c: CanvasRenderingContext2D, l: number, t: number, r: 
   c.fill();
 }
 
+/** Прямоугольник со своим радиусом у каждого угла: левый верхний, правый верхний, правый нижний, левый нижний */
+export function roundRect4(c: CanvasRenderingContext2D, l: number, t: number, r: number, b: number, tl: number, tr: number, br: number, bl: number, color: string) {
+  const w = r - l, h = b - t;
+  if (w <= 0 || h <= 0) return;
+  const m = Math.min(w / 2, h / 2);
+  tl = Math.min(tl, m); tr = Math.min(tr, m); br = Math.min(br, m); bl = Math.min(bl, m);
+  if ((c as any).isDom) { (c as any).roundRect4(l, t, r, b, tl, tr, br, bl, color); return; }   // HTML-гид
+  c.fillStyle = color;
+  c.beginPath();
+  c.moveTo(l + tl, t);
+  c.lineTo(r - tr, t);
+  if (tr > 0) c.arcTo(r, t, r, t + tr, tr);
+  c.lineTo(r, b - br);
+  if (br > 0) c.arcTo(r, b, r - br, b, br);
+  c.lineTo(l + bl, b);
+  if (bl > 0) c.arcTo(l, b, l, b - bl, bl);
+  c.lineTo(l, t + tl);
+  if (tl > 0) c.arcTo(l, t, l + tl, t, tl);
+  c.closePath();
+  c.fill();
+}
+
 export function strokeRoundRect(c: CanvasRenderingContext2D, l: number, t: number, r: number, b: number, rad: number, color: string, width: number) {
   const w = r - l, h = b - t;
   if (w <= 0 || h <= 0) return;

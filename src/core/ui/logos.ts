@@ -3,7 +3,7 @@ import { Storage2 } from '../storage';
 import { Channel } from '../data/models';
 import { Names } from '../data/names';
 import { el } from './dom';
-import { C, drawText, roundRect, U } from './u';
+import { C, drawText, FONT, roundRect, roundRect4, U } from './u';
 
 /**
  * Логотипы каналов (docs/design.md, «Логотипы»): серая подложка, логотип с отступом 14% высоты,
@@ -126,9 +126,10 @@ export const Logos = {
    * Логотип на Canvas: подложка (fill_soft или logo_plate на белом), картинка с отступом 14%
    * высоты (вписать), без картинки — монограмма; бейдж номера (настройка «Номер канала»).
    */
-  draw(c: CanvasRenderingContext2D, ch: Channel, l: number, t: number, w: number, h: number, opts?: { focused?: boolean; badge?: boolean; plate?: string }) {
+  draw(c: CanvasRenderingContext2D, ch: Channel, l: number, t: number, w: number, h: number, opts?: { focused?: boolean; badge?: boolean; plate?: string; corner?: number }) {
     const o = opts || {};
-    const rad = U.px(0.4);
+    // радиус подложки: по умолчанию малый; внутри скруглённой строки — радиус строки минус отступ
+    const rad = o.corner !== undefined && o.corner >= 0 ? o.corner : Math.min(U.px(0.4), h * 0.2);
     const img = Logos.image(ch);
     const has = Logos.hasLogo(ch);
     if (!img && !has) {
@@ -149,15 +150,20 @@ export const Logos = {
       }
     }
     if (o.badge !== false && Prefs.numberMode === NUMBER_BADGE) {
-      c.font = U.font(Math.max(0.9, Math.min(1.1, h / U.em * 0.3)), 700);
+      // бейдж — вплотную к левому верхнему углу подложки: этот угол скруглён как у подложки, правый
+      // верхний и левый нижний — прямые, правый нижний скруглён (не меньше четверти высоты бейджа)
+      const fs = Math.max(U.px(0.9), h * 0.26);
+      c.font = '700 ' + fs.toFixed(2) + 'px ' + FONT;
       const s = String(ch.num);
-      const bw = c.measureText(s).width + U.px(0.6);
-      const bh = U.px(Math.max(1.3, Math.min(1.6, h / U.em * 0.42)));
-      roundRect(c, l, t, l + bw, t + bh, rad, C.NUM_PLATE);
-      c.fillStyle = C.t(0.9);
+      const tw = c.measureText(s).width;
+      const bh = fs * 1.5;
+      const bw = Math.max(bh * 1.2, tw + fs * 1.2);
+      const br = Math.max(bh * 0.25, Math.min(rad, bh / 2));
+      roundRect4(c, l, t, l + bw, t + bh, Math.min(rad, bh / 2), 0, br, 0, C.NUM_PLATE);
+      c.fillStyle = C.t(0.92);
       c.textAlign = 'center';
       c.textBaseline = 'middle';
-      c.fillText(s, l + bw / 2, t + bh / 2 + U.px(0.05));
+      c.fillText(s, l + bw / 2, t + bh / 2 + fs * 0.05);
       c.textAlign = 'left';
     }
   },

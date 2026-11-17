@@ -46,6 +46,8 @@ export const Prefs = {
   /** Автоскрытие инфопанели, с */
   get infoHide() { return int('info_hide', 5); }, set infoHide(v: number) { put('info_hide', v); },
   get keyHints() { return bool('key_hints', true); }, set keyHints(v: boolean) { put('key_hints', v); },
+  /** Бегущая строка: выделенное название, не влезающее в ширину, прокручивается (иначе — «…») */
+  get marquee() { return bool('marquee', false); }, set marquee(v: boolean) { put('marquee', v); },
   /** Формат кадра: 0 — вписать, 1 — растянуть, 2 — увеличить */
   get aspect() { return int('aspect', 0, 0, 2); }, set aspect(v: number) { put('aspect', v); },
   get audioLang() { return str('audio_lang', ''); }, set audioLang(v: string) { put('audio_lang', v); },

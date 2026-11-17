@@ -52,25 +52,26 @@ body.nocursor,body.nocursor *{cursor:none!important}
 .logo{position:relative;background:${C.FILL_SOFT};border-radius:0.4rem;overflow:hidden;-webkit-flex:none;flex:none;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center}
 .logo img{max-width:72%;max-height:72%;display:block}
 .logo .mono{font-weight:700;color:${W};font-size:1.6rem;letter-spacing:-0.02em}
-.logo .num{position:absolute;left:0;top:0;padding:0 0.3rem;min-width:1.4rem;height:1.5rem;line-height:1.5rem;font-size:1rem;font-weight:700;text-align:center;border-radius:0.4rem 0 0.4rem 0;background:${C.NUM_PLATE};color:${C.t(0.9)}}
+.logo .num{position:absolute;left:0;top:0;padding:0 0.6em;min-width:0.6em;height:1.5em;line-height:1.5em;font-size:1rem;font-weight:700;text-align:center;border-radius:0.4rem 0 0.4rem 0;background:${C.NUM_PLATE};color:${C.t(0.92)}}
 .f .logo{background:${C.LOGO_PLATE}}
 
 /* набор номера */
 #osd{position:absolute;left:4rem;top:2.4rem;padding:1rem 1.4rem;border-radius:0.6rem;background:${C.PANEL};min-width:22rem;z-index:30}
-#osd .numrow{gap:1.2rem}
+#osd .numrow>*{margin-right:1.2rem}
+#osd .numrow>*:last-child{margin-right:0}
 #osd .big{font-size:2.6rem;font-weight:700;min-width:5rem}
 #osd .logo{width:6rem;height:4.2rem}
 #osd .name{font-size:1.5rem;font-weight:700;max-width:22rem}
-#osd .hint{font-size:1.2rem;color:${C.t(0.65)};margin-top:0.6rem}
-#osd .hint b{color:${W};font-weight:700;margin-right:0.4rem}
-#osd .hrow{margin-top:0.35rem;gap:0.6rem}
+#osd .cands{font-size:1.2rem;color:${C.t(0.65)};margin-top:0.6rem;max-width:30rem}
+#osd .cands b{color:${W};font-weight:700;margin-right:0.6rem}
+#osd .hrow{margin-top:0.35rem}
 
 /* инфопанель */
 #info{position:absolute;left:0;right:0;bottom:0;padding:5.6rem 4rem 2.4rem;z-index:10}
 #info .top{display:-webkit-flex;display:flex;-webkit-align-items:flex-start;align-items:flex-start}
 #info .logo{width:9.6rem;height:6.6rem;margin:0.2rem 1.4rem 0 0}
 #info .logo .mono{font-size:2.2rem}
-#info .logo .num{font-size:1.15rem;height:1.7rem;line-height:1.7rem;min-width:1.8rem}
+#info .logo .num{font-size:1.15rem}
 #info .body{-webkit-flex:1;flex:1;min-width:0}
 #info .l1{height:2.2rem}
 #info .chname{font-size:1.4rem;color:${C.t(0.8)};max-width:34rem}
@@ -91,6 +92,7 @@ body.nocursor,body.nocursor *{cursor:none!important}
 #info .next{font-size:1.3rem;color:${C.t(0.85)};line-height:2.2rem}
 #info .next .lbl{color:${C.t(0.5)}}
 #info .seekb{position:absolute;top:0.2rem;padding:0.15rem 0.8rem;border-radius:0.4rem;background:${C.ARCHIVE};color:${C.ON_ARCHIVE};font-size:1.3rem;font-weight:700;white-space:nowrap}
+#info .seekb.livel{background:${C.LIVE};color:${W}}
 #info .clock{font-size:2.4rem;color:${C.t(0.95)};margin-left:1.6rem;line-height:1}
 #info .more{overflow:hidden}
 #info .more .sep{height:1px;background:${C.LINE_STRONG};margin-top:1.2rem}
@@ -99,7 +101,7 @@ body.nocursor,body.nocursor *{cursor:none!important}
 #info .banner .cover{width:100%;height:100%;object-fit:cover;display:block}
 #info .banner .logo{position:absolute;left:0;top:0;width:100%;height:100%;margin:0}
 #info .banner .logo img{max-width:60%;max-height:60%}
-#info .tags{font-size:1.2rem;color:${C.t(0.65)};line-height:1.6rem;max-height:3.2rem;overflow:hidden}
+#info .tags{font-size:1.2rem;color:${C.t(0.65)};line-height:1.6rem;height:1.6rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 #info .desc{font-size:1.3rem;color:${C.t(0.85)};line-height:1.85rem;max-height:11.1rem;overflow:hidden;margin-top:0.6rem}
 #info .upnext{margin-left:2rem;-webkit-flex:none;flex:none}
 #info .upnext .h{font-size:1.15rem;color:${C.t(0.5)};margin-bottom:0.3rem}
@@ -130,7 +132,7 @@ body.nocursor,body.nocursor *{cursor:none!important}
 .list .it{height:3.6rem;border-radius:0.4rem;padding:0 1rem;font-size:1.35rem;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center}
 .list .it .logo{width:4.6rem;height:3rem;margin-right:1rem}
 .list .it .logo .mono{font-size:1.1rem}
-.list .it .logo .num{font-size:0.9rem;height:1.25rem;line-height:1.25rem;min-width:1.2rem}
+.list .it .logo .num{font-size:0.9rem}
 .list .it .v{margin-left:auto;font-size:1.2rem;color:${C.t(0.5)};padding-left:1rem;white-space:nowrap}
 .scroller{position:relative;overflow:hidden}
 .scroller .inner{position:absolute;left:0;right:0;top:0;-webkit-transition:-webkit-transform 120ms;transition:transform 120ms}

@@ -11,8 +11,9 @@ import { Anim, drawIcon, el } from './dom';
 import { Fmt } from './fmt';
 import { Layer } from './layer';
 import { Logos } from './logos';
+import { Marquee } from './marquee';
 import type { Tv } from './tv';
-import { C, drawText, lite, RADIUS_S, roundRect, strokeRoundRect, U } from './u';
+import { C, drawText, lite, RADIUS, RADIUS_S, roundRect, strokeRoundRect, U } from './u';
 
 /** Окно сетки — 2 часа, шаг 30 минут, линия «сейчас» на 25% */
 const SPAN = 2 * 3600;
@@ -72,10 +73,14 @@ export class GuideLayer implements Layer {
   private tickTimer = 0;
   private w = 0;
   private h = 0;
+  /** Бегущие строки выделенных строк; слоты: 0 — канал, 1 — передача, 2 — ячейка сетки, 3 — заголовок шапки */
+  private marq: Marquee;
 
   constructor(private tv: Tv) {
     this.el = el('div', 'guide');
     this.canvas = this.el;
+    const self = this;
+    this.marq = new Marquee(function () { self.redraw(); }, function () { return U.em; });
     this.surface();
   }
 
@@ -115,7 +120,48 @@ export class GuideLayer implements Layer {
   focusedChannel() { return this.focused(); }
   groupKey(): string | null { const g = this.group(); return g ? g.key : null; }
 
-  private liveStart() { return Clock.now() - SLOT; }
+  /**
+   * Время кадра играющего архива, если фокус на его канале (иначе -1): у этого канала окно сетки
+   * привязано к нему, а не к эфиру — янтарная линия на месте красной, на других каналах — эфир.
+   */
+  private archiveAnchor(): number {
+    const st = this.tv.state;
+    const f = this.focused();
+    if (!st.archive || !st.channel || !f || f.key !== st.channel.key) return -1;
+    return this.tv.position();
+  }
+
+  /** Начало окна сетки при фокусе на каналах: линия — через 30 минут от него (эфир или архив) */
+  private liveStart() { const a = this.archiveAnchor(); return (a >= 0 ? a : Clock.now()) - SLOT; }
+
+  /**
+   * OK в архиве: вид со списком программ — фокус на играющей передаче (в сетке остаются каналы).
+   * Передач канала ещё нет (сутки грузятся) — фокус встанет, когда придут (ensureRows), если до
+   * этого не нажали другую клавишу.
+   */
+  focusArchive() {
+    if (this.grid) return;
+    this.archFocus = true;
+    this.ensureRows();
+    this.applyArchiveFocus();
+  }
+
+  private archFocus = false;
+
+  private applyArchiveFocus() {
+    if (!this.archFocus) return;
+    const pos = this.tv.position();
+    for (let k = 0; k < this.plRows.length; k++) {
+      if (this.plRows[k].start <= pos && pos < this.plRows[k].stop) {
+        this.archFocus = false;
+        this.plIndex = k;
+        this.plJump = true;
+        this.zone = Zone.PROGRAMS;
+        this.redraw();
+        return;
+      }
+    }
+  }
 
   open(ch: Channel | null, groupKey: string | null, toGrid = false) {
     const cat = this.tv.catalog;
@@ -131,6 +177,7 @@ export class GuideLayer implements Layer {
     this.winStart = this.liveStart();
     this.mode = Prefs.guideMode;
     this.plCh = null; this.plLast = null; this.plKeep = -1;
+    this.archFocus = false;
     this.resetShift();
     if (toGrid && this.grid) this.toGrid();
     clearInterval(this.tickTimer);
@@ -142,9 +189,19 @@ export class GuideLayer implements Layer {
   /** Список категорий изменился (скрытие, избранное, новый каталог) — фокус на том же канале */
   reload() {
     if (!this.tv.hasLayer(this)) return;
+    const inPls = this.zone === Zone.PLAYLISTS;
     const f = this.focused();
     const cat = this.tv.catalog;
     this.open(f && cat ? cat.byKey[f.key] || null : null, this.groupKey());
+    if (inPls) this.keepPlaylists();
+  }
+
+  /** open() ставит зону каналов и убирает колонки; в колонке плейлистов остаёмся в ней, колонка на месте */
+  private keepPlaylists() {
+    this.zone = Zone.PLAYLISTS;
+    this.shift = 1;
+    this.shift2 = 1;
+    this.redraw();
   }
 
   /** Скрыть канал или категорию и встать рядом (предыдущий, нет — следующий) */
@@ -269,6 +326,7 @@ export class GuideLayer implements Layer {
     } else { this.plIndex = this.liveIndex(); this.plJump = true; }
     const di = this.plPending !== null ? this.plPending : this.plRows.length ? this.dayOf(Math.min(this.plIndex, this.plRows.length - 1)) : -1;
     this.dateIndex = Math.max(0, days.indexOf(di));
+    this.applyArchiveFocus();
   }
 
   /** К дате k: её сутки не загружены — окно вокруг неё, фокус — когда придут */
@@ -349,6 +407,7 @@ export class GuideLayer implements Layer {
   hasLong(name: string) { return this.zone === Zone.CHANNELS && name === 'left' && this.grid; }
 
   key(name: string, long: boolean, digit: number) {
+    this.archFocus = false;
     if (name === 'digit') { this.tv.digit(digit); return; }
     switch (this.zone) {
       case Zone.GRID: this.gridKey(name); return;
@@ -377,19 +436,30 @@ export class GuideLayer implements Layer {
     this.redraw();
   }
 
+  /** ↑/↓ — плейлист (категории и каналы справа меняются сразу), OK или → — к категориям, «Назад» — отмена */
   private playlistsKey(name: string) {
     const n = this.pls.length;
+    const was = this.plsIndex;
     if (name === 'up') this.plsIndex = (this.plsIndex - 1 + n) % n;
     else if (name === 'down') this.plsIndex = (this.plsIndex + 1) % n;
     else if (name === 'right') this.zone = Zone.CATS;
+    if (this.plsIndex !== was) this.previewSelected();
     this.redraw();
   }
 
-  private choosePlaylist() {
+  /** Показать справа плейлист в фокусе колонки */
+  private previewSelected() {
     const p = this.pls[this.plsIndex];
     if (!p) return;
-    if (this.tv.playlist && p.id === this.tv.playlist.id) { this.zone = Zone.CATS; this.redraw(); }
-    else this.tv.switchPlaylist(p);
+    this.tv.previewPlaylist(p);
+    this.open(null, null);
+    this.keepPlaylists();
+  }
+
+  private choosePlaylist() {
+    this.previewSelected();
+    this.zone = Zone.CATS;
+    this.redraw();
   }
 
   private openCats() {
@@ -443,9 +513,11 @@ export class GuideLayer implements Layer {
   private pageSize() { return Math.max(1, this.visibleRows() - 1); }
 
   private toGrid() {
+    // на канале с играющим архивом выделяется архивная передача, окно остаётся как было (линия архива)
+    const at = this.archiveAnchor();
     this.zone = Zone.GRID;
     this.live = false;
-    this.focusTime = Clock.now();
+    this.focusTime = at >= 0 ? at : Clock.now();
     this.redraw();
   }
 
@@ -468,6 +540,7 @@ export class GuideLayer implements Layer {
   }
 
   enter() {
+    this.archFocus = false;
     if (this.tv.numberPending()) { this.tv.applyNumber(); return; }
     if (this.zone === Zone.PLAYLISTS) { this.choosePlaylist(); return; }
     if (this.zone === Zone.CATS && this.catSearch) { this.tv.openSearch(); return; }
@@ -493,8 +566,15 @@ export class GuideLayer implements Layer {
   }
 
   back() {
+    this.archFocus = false;
     if (this.tv.numberPending()) { this.tv.cancelNumber(); return; }
-    if (this.zone === Zone.PLAYLISTS) { this.zone = Zone.CATS; this.redraw(); return; }
+    if (this.zone === Zone.PLAYLISTS) {
+      // отмена: прежний плейлист, категория и канал — как были
+      if (this.tv.revertPlaylistPreview()) this.open(this.tv.state.channel, this.tv.state.groupKey);
+      this.zone = Zone.CATS;
+      this.redraw();
+      return;
+    }
     if (this.zone === Zone.CATS) {
       this.groupIndex = Math.max(0, Math.min(this.groups.length - 1, this.catsFromGroup));
       const k = this.catsFromChannel ? this.channels().indexOf(this.catsFromChannel) : -1;
@@ -533,6 +613,7 @@ export class GuideLayer implements Layer {
 
   destroy() {
     clearInterval(this.tickTimer);
+    this.marq.stop();
     cancelAnimationFrame(this.raf);
     this.dirty = false;
   }
@@ -598,6 +679,7 @@ export class GuideLayer implements Layer {
     const t0 = Date.now();
     if (this.dom) this.dom.begin();
     this.drawFrame();
+    this.marq.end();
     if (this.dom) this.dom.end();
     GuideStats.add(Date.now() - t0);
   }
@@ -615,6 +697,8 @@ export class GuideLayer implements Layer {
     this.shift2 = this.animate(this.shift2, z === Zone.PLAYLISTS ? 1 : 0);
     this.drawBackground();
     const now = Clock.now();
+    const st = this.tv.state, f = this.focused();
+    this.archNow = st.archive && st.channel && f && st.channel.key === f.key ? this.tv.position() : -1;
     if (this.live) this.winStart = this.liveStart();
     this.drawTop(now);
     this.drawHints();
@@ -633,13 +717,25 @@ export class GuideLayer implements Layer {
     if (moved) c.restore();
   }
 
+  /**
+   * Ширина затемнения слева в видах с видео справа: до правого края каналов — с учётом сдвига
+   * колонками категорий и плейлистов (список уезжает вправо, подложка — вместе с ним)
+   */
+  private backW() {
+    const dx = (this.shift + this.shift2) * (this.catW + U.em);
+    return Math.min(this.padX + dx + this.chW + 1.5 * U.em, this.w * 0.85);
+  }
+
   private drawBackground() {
     const c = this.c, w = this.w, h = this.h;
     if (lite()) {
       // без прозрачности: сплошной фон; в видах с видео справа — только слева, справа видео как есть
       c.fillStyle = C.GUIDE_TOP;
       if (!this.progHidden || this.rv >= 0.99) { c.fillRect(0, 0, w, h); return; }
-      c.fillRect(0, 0, Math.min(this.padX + (this.catsFixed ? this.catW + U.em : 0) + this.chW + 1.5 * U.em, w * 0.7), h);
+      c.fillRect(0, 0, this.backW(), h);
+      // шапка и строка подсказок шире списка — под ними сплошные полосы во всю ширину
+      if (Prefs.guideHeader !== 2) c.fillRect(0, 0, w, this.padTop + this.topBlockNow + this.headH);
+      if (this.hintsH) c.fillRect(0, h - this.padBottom - this.hintsH - 0.5 * U.em, w, this.padBottom + this.hintsH + 0.5 * U.em);
       return;
     }
     const g = c.createLinearGradient(0, 0, 0, h);
@@ -648,7 +744,7 @@ export class GuideLayer implements Layer {
     g.addColorStop(1, C.GUIDE_BOTTOM);
     if (!this.progHidden || this.rv >= 0.99) { c.fillStyle = g; c.fillRect(0, 0, w, h); return; }
     // слева затемнено, справа видео; программа выезжает — затемняется всё
-    const xA = Math.min(this.padX + (this.catsFixed ? this.catW + U.em : 0) + this.chW + 1.5 * U.em, w * 0.7);
+    const xA = this.backW();
     c.fillStyle = g;
     c.fillRect(0, 0, xA, h);
     const lg = c.createLinearGradient(xA, 0, xA + w * 0.22, 0);
@@ -673,6 +769,14 @@ export class GuideLayer implements Layer {
     drawText(c, s, x, cy, w);
   }
 
+  /** Строка, которая у выделенной (active) прокручивается, если не влезает (бегущая строка) */
+  private title(slot: number, key: string, active: boolean, s: string, x: number, cy: number, w: number, size: number, color: string, bold?: boolean | number) {
+    const c = this.c;
+    c.font = U.font(size, bold);
+    c.fillStyle = color;
+    this.marq.draw(c, slot, key, active, s, x, cy, w);
+  }
+
   private textW(s: string, size: number, bold?: boolean | number): number {
     this.c.font = U.font(size, bold);
     return this.c.measureText(s).width;
@@ -680,7 +784,7 @@ export class GuideLayer implements Layer {
 
   private hintsFor(z: Zone): [string, string][] {
     switch (z) {
-      case Zone.PLAYLISTS: return [['↑ ↓', str('hint_playlist')], ['OK', str('hint_select')], ['→', str('hint_categories')], [str('key_back'), str('hint_cancel')]];
+      case Zone.PLAYLISTS: return [['↑ ↓', str('hint_playlist')], ['→', str('hint_categories')], [str('key_back'), str('hint_cancel')]];
       case Zone.CATS: return [['↑ ↓', str('category')], ['→', str('hint_to_channels')], [str('key_back'), str('hint_cancel')]];
       case Zone.PROGRAMS: return [['OK', str('watch')], ['←', str('hint_to_channels')], ['→', str('hint_dates')], ['↑ ↓', str('hint_programme_pick')]];
       case Zone.DATES: return [['↑ ↓', str('hint_date')], ['←', str('hint_programmes')], ['OK', str('watch')], [str('key_back'), str('hint_to_channels')]];
@@ -798,7 +902,7 @@ export class GuideLayer implements Layer {
     const cell = listP ? new Cell(listP.start, listP.stop, listP) : Cells.at(this.tv.repo.around(ch, ref), ref);
     const p = cell.program;
     this.text(ch.title(), x, t + 0.6 * em, w, 1.2, C.t(0.7));
-    this.text(p ? p.title : str('no_programme'), x, t + 2.35 * em, w, 1.8, C.WHITE, true);
+    this.title(3, ch.key + ':' + cell.start, true, p ? p.title : str('no_programme'), x, t + 2.35 * em, w, 1.8, C.WHITE, true);
     this.text(Fmt.dayTimeRange(cell.start, cell.end), x, t + 4.05 * em, w, 1.2, C.t(0.8));
     if (p && p.desc) this.wrapText(p.desc, x, t + 5.2 * em, w, 1.15, C.t(0.65), 2, 1.5);
   }
@@ -831,7 +935,7 @@ export class GuideLayer implements Layer {
     Logos.draw(this.c, ch, this.padX, t + 0.2 * em, logoW, 4.4 * em);
     const x = this.padX + logoW + 1.2 * em;
     const w = this.w - this.padX - x - this.clockW() - 12 * em;
-    this.text(ch.title(), x, t + 1.5 * em, w, 1.8, C.WHITE, true);
+    this.title(3, ch.key, true, ch.title(), x, t + 1.5 * em, w, 1.8, C.WHITE, true);
     const sub = ch.group + (ch.hasArchive ? ' · ' + str('archive_x_d', ch.archiveDays) : '');
     this.text(sub, x, t + 3.5 * em, w, 1.2, C.t(0.7));
   }
@@ -908,22 +1012,25 @@ export class GuideLayer implements Layer {
       this.drawRow(list[i], i === this.index, this.bodyTop + r * (this.rowH + this.gap), gl, gr, now);
     }
     if (this.grid) {
-      const x = gl + (now - this.winStart) / SPAN * (gr - gl);
+      // линия «сейчас» красная; на канале с играющим архивом (окно у него по времени архива) — янтарная
+      const anchor = this.zone === Zone.CHANNELS ? this.archNow : -1;
+      const lineT = anchor >= 0 ? anchor : now;
+      const x = gl + (lineT - this.winStart) / SPAN * (gr - gl);
       if (x >= gl && x <= gr) {
         const shown = Math.min(rows, list.length - first);
-        c.strokeStyle = C.LIVE;
+        c.strokeStyle = anchor >= 0 ? C.ARCHIVE : C.LIVE;
         c.lineWidth = 0.2 * em;
         c.beginPath();
         c.moveTo(x, this.bodyTop - 0.5 * em);
         c.lineTo(x, this.bodyTop + shown * (this.rowH + this.gap) - this.gap);
         c.stroke();
-        const s = Fmt.hhmm(now);
+        const s = Fmt.hhmm(lineT);
         const hw = this.textW(s, 1.1, true) / 2 + 0.45 * em;
         const cx = Math.max(gl + hw, Math.min(gr - hw, x));
         const cy = this.bodyTop - 1.35 * em;
-        roundRect(c, cx - hw, cy - 0.85 * em, cx + hw, cy + 0.85 * em, 0.35 * em, C.LIVE);
+        roundRect(c, cx - hw, cy - 0.85 * em, cx + hw, cy + 0.85 * em, 0.35 * em, anchor >= 0 ? C.ARCHIVE : C.LIVE);
         c.textAlign = 'center';
-        this.text(s, cx, cy + 0.05 * em, 2 * hw, 1.1, C.WHITE, true);
+        this.text(s, cx, cy + 0.05 * em, 2 * hw, 1.1, anchor >= 0 ? C.ON_ARCHIVE : C.WHITE, true);
         c.textAlign = 'left';
       }
     } else if (this.rv > 0.01) {
@@ -942,9 +1049,9 @@ export class GuideLayer implements Layer {
     }
   }
 
-  private outline(l: number, t: number, r: number, b: number) {
+  private outline(l: number, t: number, r: number, b: number, rad = RADIUS_S * U.em) {
     const sw = 0.15 * U.em;
-    strokeRoundRect(this.c, l + sw / 2, t + sw / 2, r - sw / 2, b - sw / 2, RADIUS_S * U.em, C.t(0.8), sw);
+    strokeRoundRect(this.c, l + sw / 2, t + sw / 2, r - sw / 2, b - sw / 2, rad, C.t(0.8), sw);
   }
 
   private drawRow(ch: Channel, focus: boolean, y: number, gl: number, gr: number, now: number) {
@@ -952,12 +1059,12 @@ export class GuideLayer implements Layer {
     const l = this.padX, r = this.padX + this.chW;
     const rowH = this.rowH;
     const chFocus = focus && this.zone === Zone.CHANNELS;
-    roundRect(c, l, y, r, y + rowH, RADIUS_S * em, chFocus ? C.WHITE : focus ? C.FILL_ACTIVE : C.FILL);
-    if (focus && !chFocus && !this.grid && (this.zone === Zone.PROGRAMS || this.zone === Zone.DATES)) this.outline(l, y, r, y + rowH);
+    roundRect(c, l, y, r, y + rowH, RADIUS * em, chFocus ? C.WHITE : focus ? C.FILL_ACTIVE : C.FILL);
+    if (focus && !chFocus && !this.grid && (this.zone === Zone.PROGRAMS || this.zone === Zone.DATES)) this.outline(l, y, r, y + rowH, RADIUS * em);
     const fg = chFocus ? C.BLACK : C.WHITE;
     const cy = y + rowH / 2;
     let x = l + 0.35 * em;
-    Logos.draw(c, ch, x, y + 0.25 * em, 4.3 * em, rowH - 0.5 * em, { focused: chFocus });
+    Logos.draw(c, ch, x, y + 0.25 * em, 4.3 * em, rowH - 0.5 * em, { focused: chFocus, corner: (RADIUS - 0.25) * em });
     if (!this.grid && r - l < 10 * em) return;
     x += 5 * em;
     if (Prefs.numberMode === NUMBER_NEAR_NAME) {
@@ -970,7 +1077,7 @@ export class GuideLayer implements Layer {
     const locked = !!cat && cat.isLocked(ch);
     const isz = 1.5 * em;
     const iw = ((fav ? 1 : 0) + (ch.hasArchive ? 1 : 0) + (locked ? 1 : 0)) * (isz + 0.35 * em);
-    this.text(ch.name, x, cy, r - x - 0.8 * em - iw, 1.35, fg, current);
+    this.title(0, ch.key, chFocus, ch.name, x, cy, r - x - 0.8 * em - iw, 1.35, fg, current);
     const ic = chFocus ? C.BLACK : C.t(0.7);
     let ix = r - 0.8 * em;
     if (ch.hasArchive) { ix -= isz; drawIcon(c, 'archive', ix, cy - isz / 2, isz, ic); ix -= 0.35 * em; }
@@ -999,12 +1106,18 @@ export class GuideLayer implements Layer {
       }
       if (tw > em) {
         const t = cell.title || (isFocus ? Fmt.timeRange(cell.start, cell.end) : '');
-        if (t) this.text(t, tl, cy, tw, 1.25, isFocus ? C.BLACK : isPast ? C.t(0.45) : C.WHITE);
+        if (t) this.title(2, ch.key + ':' + cell.start, isFocus, t, tl, cy, tw, 1.25, isFocus ? C.BLACK : isPast ? C.t(0.45) : C.WHITE);
       }
     }
   }
 
-  private progH(p: Programme, now: number) { return p.start <= now && now < p.stop ? this.rowH + 0.9 * U.em : this.rowH; }
+  /** позиция играющего архива у канала в фокусе (-1 — нет), раз за кадр: по ней строки программы */
+  private archNow = -1;
+
+  private progH(p: Programme, now: number) {
+    const a = this.archNow;
+    return (p.start <= now && now < p.stop) || (a >= 0 && p.start <= a && a < p.stop) ? this.rowH + 0.9 * U.em : this.rowH;
+  }
 
   private drawPrograms(now: number) {
     this.ensureRows();
@@ -1073,32 +1186,47 @@ export class GuideLayer implements Layer {
     const past = p.stop <= now;
     const pf = this.zone === Zone.PROGRAMS && i === this.plIndex;
     const ghost = this.zone === Zone.DATES && i === this.plIndex;
-    const bg = pf ? C.WHITE : ghost ? C.FILL_ACTIVE : live ? C.FILL_PLAYING : '';
+    // что играет у этого канала: эфир — идущая передача, архив — передача с кадром (метка «играет» на ней)
+    const st = this.tv.state;
+    const watching = !!st.channel && st.channel.key === ch.key;
+    const arch = watching && st.archive !== null;
+    const pos = this.archNow;
+    const playingArchive = arch && pos >= 0 && p.start <= pos && pos < p.stop;
+    const playingLive = watching && !arch && live;
+    const bg = pf ? C.WHITE : ghost ? C.FILL_ACTIVE : (live && !arch) || playingArchive ? C.FILL_PLAYING : '';
     if (bg) roundRect(c, l, y, r, y + h, RADIUS_S * em, bg);
     if (ghost) this.outline(l, y, r, y + h);
     const fg = pf ? C.BLACK : past ? C.t(0.62) : C.WHITE;
-    const cy = live ? y + this.rowH / 2 - 0.1 * em : y + h / 2;
+    const tall = live || playingArchive;
+    const cy = tall ? y + this.rowH / 2 - 0.1 * em : y + h / 2;
     this.text(Fmt.hhmm(p.start), l + 0.8 * em, cy, 5 * em, 1.3, fg);
     const ic = pf ? C.BLACK : C.t(0.8);
     const isz = 1.7 * em;
     let ix = r - 0.8 * em;
     if (live) {
+      // играющий эфир — цветом «Эфир», остальные — как значки
+      const lc = playingLive ? C.LIVE : ic;
       const lw = this.textW('LIVE', 1.2, true);
       const pad = 0.8 * em;
       ix -= lw + 2 * pad;
-      strokeRoundRect(c, ix, cy - 0.85 * em, ix + lw + 2 * pad, cy + 0.85 * em, 0.3 * em, ic, 0.12 * em);
-      this.text('LIVE', ix + pad, cy + 0.05 * em, lw + 2, 1.2, ic, true);
+      strokeRoundRect(c, ix, cy - 0.85 * em, ix + lw + 2 * pad, cy + 0.85 * em, 0.3 * em, lc, 0.12 * em);
+      this.text('LIVE', ix + pad, cy + 0.05 * em, lw + 2, 1.2, lc, true);
       ix -= 0.5 * em;
     }
-    if (past && ch.hasArchive && p.start >= now - ch.archiveDays * 86400 - SLOT) { ix -= isz; drawIcon(c, 'archive', ix, cy - isz / 2, isz, ic); ix -= 0.5 * em; }
+    // играющий архив — значок цветом архива
+    if ((past || playingArchive) && ch.hasArchive && p.start >= now - ch.archiveDays * 86400 - SLOT) {
+      ix -= isz; drawIcon(c, 'archive', ix, cy - isz / 2, isz, playingArchive ? C.ARCHIVE : ic); ix -= 0.5 * em;
+    }
     if (p.start > now && Reminders.has(ch, p.start)) { ix -= isz; drawIcon(c, 'bell', ix, cy - isz / 2, isz, ic); ix -= 0.5 * em; }
     const tx = l + 5.4 * em;
-    this.text(p.title, tx, cy, ix - tx - 0.3 * em, 1.35, fg, live);
-    if (live) {
+    this.title(1, ch.key + ':' + p.start, pf, p.title, tx, cy, ix - tx - 0.3 * em, 1.35, fg, tall);
+    if (tall) {
+      // эфирный прогресс (белый); у играющего архива поверх него — янтарный до кадра архива
       const by = y + h - 0.95 * em;
       const bw = r - 0.8 * em - tx;
       roundRect(c, tx, by, tx + bw, by + 0.25 * em, 0.12 * em, pf ? 'rgba(0,0,0,0.2)' : C.t(0.22));
-      roundRect(c, tx, by, tx + bw * Fmt.progress(p.start, p.stop, now), by + 0.25 * em, 0.12 * em, pf ? C.BLACK : C.WHITE);
+      if (live) roundRect(c, tx, by, tx + bw * Fmt.progress(p.start, p.stop, now), by + 0.25 * em, 0.12 * em, pf ? C.BLACK : C.WHITE);
+      if (playingArchive) roundRect(c, tx, by, tx + bw * Fmt.progress(p.start, p.stop, pos), by + 0.25 * em, 0.12 * em, C.ARCHIVE);
     }
   }
 
@@ -1123,7 +1251,7 @@ export class GuideLayer implements Layer {
       if (y + th < top || y > bottom) continue;
       const focus = this.zone === Zone.DATES && k === this.dateIndex;
       if (focus) roundRect(c, l, y, r, y + th, RADIUS_S * em, C.WHITE);
-      else if (k === cur) this.outline(l, y, r, y + th);
+      else if (k === cur) { roundRect(c, l, y, r, y + th, RADIUS_S * em, C.FILL_ACTIVE); this.outline(l, y, r, y + th); }
       const color = focus ? C.BLACK : k === cur ? C.WHITE : C.t(0.72);
       const bold = focus || k === cur;
       this.text(this.plDayLabels[k][0], (l + r) / 2, y + th / 2 - 0.6 * em, r - l, 1.25, color, bold);
@@ -1175,8 +1303,9 @@ export class GuideLayer implements Layer {
     let y = top + ih + 1.2 * em;
     this.text(Fmt.dayTimeRange(p.start, p.stop), l, y + 0.6 * em, pw, 1.2, C.t(0.7));
     y += 1.9 * em;
-    const tl = this.wrapText(p.title, l, y, pw, 1.6, C.WHITE, 3, 2);
-    y += tl * 2 * em + 0.7 * em;
+    // название всегда занимает место двух строк: описание не прыгает от длины названия
+    this.wrapText(p.title, l, y, pw, 1.6, C.WHITE, 2, 2);
+    y += 2 * 2 * em + 0.7 * em;
     if (p.desc) this.wrapText(p.desc, l, y, pw, 1.25, C.t(0.8), Math.max(2, Math.floor((bottom - y - 3 * em) / (1.7 * em))), 1.7);
     const live = p.start <= now && now < p.stop;
     const action = str(live ? 'watch_live' : p.stop <= now && ch.hasArchive && p.start >= now - ch.archiveDays * 86400 - SLOT ? 'watch_from_archive' : 'about');

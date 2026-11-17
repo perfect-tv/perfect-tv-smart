@@ -76,7 +76,8 @@ export class Osd {
     this.num = el('div', 'big', null, r);
     this.logo = el('div', 'logo', null, r);
     this.name = el('div', 'name el', null, r);
-    this.hints = el('div', 'hint', null, e);
+    // не «hint»: так называется строка подсказок клавиш (flex в одну строку)
+    this.hints = el('div', 'cands', null, e);
   }
   show(buf: string, cat: Catalog) {
     const n = parseInt(buf, 10) || 0;
@@ -94,7 +95,7 @@ export class Osd {
         const c = cat.byNum(k);
         if (!c) continue;
         count++;
-        const row = el('div', 'row hrow el', null, h);
+        const row = el('div', 'hrow el', null, h);
         el('b', '', String(c.num), row);
         row.appendChild(document.createTextNode(c.name));
       }

@@ -409,6 +409,7 @@ export class SettingsLayer implements Layer {
       { name: str('guide_desc'), desc: str('guide_desc_sub'), values: [str('off'), str('on')], index: function () { return Prefs.guideDesc ? 1 : 0; }, pick: function (i) { Prefs.guideDesc = i === 1; } },
       { name: str('keyboard_layout'), values: [str('layout_standard'), str('layout_abc')], index: function () { return Prefs.keyboardAbc ? 1 : 0; }, pick: function (i) { Prefs.keyboardAbc = i === 1; } },
       { name: str('key_hints'), desc: str('a_row_at_the_bottom_of_the_pinned'), values: [str('off'), str('on')], index: function () { return Prefs.keyHints ? 1 : 0; }, pick: function (i) { Prefs.keyHints = i === 1; } },
+      { name: str('marquee'), desc: str('marquee_sub'), values: [str('off'), str('on')], index: function () { return Prefs.marquee ? 1 : 0; }, pick: function (i) { Prefs.marquee = i === 1; } },
       { name: str('lite_interface'), desc: str('lite_interface_sub'), values: [str('off'), str('lite_no_animations'), str('lite_no_transparency')], index: function () { return Prefs.lite; }, pick: function (i) { Prefs.lite = i; U.init(); restyle(); self.tv.relabel(); } },
     ];
   }

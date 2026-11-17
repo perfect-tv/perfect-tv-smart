@@ -255,14 +255,20 @@ export class DomCtx {
   /** Скруглённый прямоугольник (roundRect в u.ts) */
   roundRect(l: number, t: number, r: number, b: number, rad: number, color: string) { this.box2(l, t, r - l, b - t, rad, color); }
 
-  private box2(x: number, y: number, w: number, h: number, rad: number, style: any) {
+  /** Свой радиус у каждого угла (roundRect4 в u.ts) */
+  roundRect4(l: number, t: number, r: number, b: number, tl: number, tr: number, br: number, bl: number, color: string) {
+    this.box2(l, t, r - l, b - t, 0, color, px(tl) + ' ' + px(tr) + ' ' + px(br) + ' ' + px(bl));
+  }
+
+  private box2(x: number, y: number, w: number, h: number, rad: number, style: any, radii?: string) {
     if (w <= 0 || h <= 0) return;
     const e = this.take('b', function () { return document.createElement('div'); });
     setPx(e, 'left', this.X(x));
     setPx(e, 'top', this.Y(y));
     setPx(e, 'width', w);
     setPx(e, 'height', h);
-    setPx(e, 'borderRadius', rad > 0 ? rad : 0);
+    if (radii) { e.n.borderRadius = -1; set(e, 'borderRadius', radii); }
+    else { if (e.s.borderRadius !== undefined) { delete e.s.borderRadius; } setPx(e, 'borderRadius', rad > 0 ? rad : 0); }
     this.paint(e, style, x + this.tx, y + this.ty, w, h);
   }
 

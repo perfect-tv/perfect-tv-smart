@@ -246,6 +246,15 @@ export class Playback {
 
   // ---------------------------------------------------------------- дорожки
 
+  /** Сколько дорожек вида kind (без подписей — дёшево, для бейджей инфопанели) */
+  trackCount(kind: 'audio' | 'text'): number {
+    if (this.extOn) { let n = 0; const t = this.ext!.tracks(); for (let i = 0; i < t.length; i++) if (t[i].kind === kind) n++; return n; }
+    const h = this.hls;
+    if (!h) return 0;
+    const list = kind === 'audio' ? h.audioTracks : h.subtitleTracks;
+    return list ? list.length : 0;
+  }
+
   tracks(): Track[] {
     if (this.extOn) return this.ext!.tracks();
     const out: Track[] = [];

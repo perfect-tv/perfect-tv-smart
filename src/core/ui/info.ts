@@ -6,6 +6,7 @@ import { Anim, el, icon, setText, visible } from './dom';
 import { Fmt } from './fmt';
 import { hintRow } from './widgets';
 import { Logos } from './logos';
+import { DomMarquee } from './marquee';
 import { C, lite, roundRect, U } from './u';
 
 export interface InfoModel {
@@ -22,6 +23,9 @@ export interface InfoModel {
   error: boolean;
   /** Встроенный плеер вместо hls.js («NAT») */
   engine: string;
+  /** Звуковых дорожек (бейдж, если больше одной) и дорожек субтитров (бейдж, если есть) */
+  audios: number;
+  subtitles: number;
 }
 
 const SLOT = 1800;
@@ -49,6 +53,7 @@ export class InfoPanel {
   private badges: HTMLElement;
   private clock: HTMLElement;
   private title: HTMLElement;
+  private titleMq: DomMarquee;
   private tStart: HTMLElement;
   private tEnd: HTMLElement;
   private barBox: HTMLElement;
@@ -56,6 +61,7 @@ export class InfoPanel {
   private remain: HTMLElement;
   private next: HTMLElement;
   private seekB: HTMLElement;
+  private liveL: HTMLElement;
   private moreBox: HTMLElement;
   private banner: HTMLElement;
   private tags: HTMLElement;
@@ -64,7 +70,9 @@ export class InfoPanel {
   private hints: HTMLElement;
   private hideTimer = 0;
   private badgesKey = '';
-  private barState = { v: 0, b: 0, s: -1, arch: false };
+  private barState = { v: 0, b: 0, s: -1, arch: false, live: -1 };
+  /** Положение «эфира» на шкале в архиве (0..1), -1 — нет: красная черта, при перемотке — метка «Эфир» */
+  private liveAt = -1;
   private hintKey = '';
   private hintArchive = false;
   private hintPaused = false;
@@ -83,6 +91,7 @@ export class InfoPanel {
     this.chName = el('div', 'chname el', null, l1);
     this.badges = el('div', 'badges row', null, l1);
     this.title = el('div', 'title el', null, body);
+    this.titleMq = new DomMarquee(this.title);
     const l3 = el('div', 'row l3', null, body);
     this.tStart = el('div', 'ts', null, l3);
     this.barBox = el('div', 'bar', null, l3);
@@ -92,6 +101,9 @@ export class InfoPanel {
     this.remain = el('div', 'remain', null, l3);
     const l4 = el('div', 'l4', null, body);
     this.next = el('div', 'next el', null, l4);
+    // метка «Эфир» под красной чертой; пузырь перемотки (он позже в разметке) перекрывает её
+    this.liveL = el('div', 'seekb livel', str('live'), l4);
+    this.liveL.style.visibility = 'hidden';
     this.seekB = el('div', 'seekb', null, l4);
     this.seekB.style.visibility = 'hidden';
     this.clock = el('div', 'clock', null, top);
@@ -115,6 +127,11 @@ export class InfoPanel {
     this.banner.style.width = Math.round(cw * 0.25) + 'px';
     this.banner.style.height = Math.round(cw * 0.25 * 9 / 16) + 'px';
     this.upnext.style.width = Math.round(cw * 0.27) + 'px';
+    // описание не выше картинки: строк столько, сколько помещается рядом с одной строкой тегов
+    // (число зависит от размера интерфейса, высота панели не прыгает от длины текста)
+    const lh = U.px(1.85);
+    const lines = Math.max(2, Math.floor((cw * 0.25 * 9 / 16 - U.px(1.6) - U.px(0.6)) / lh));
+    this.desc.style.maxHeight = Math.round(lines * lh) + 'px';
   }
 
   update(m: InfoModel) {
@@ -128,7 +145,7 @@ export class InfoPanel {
     this.setBadges(m);
     const p = m.program;
     const ref = m.seek !== null ? m.seek : m.position;
-    setText(this.title, p ? p.title : (m.archive || m.seek !== null ? str('archive') + Fmt.hhmm(ref) : str('no_programme')));
+    this.titleMq.set(p ? p.title : (m.archive || m.seek !== null ? str('archive') + Fmt.hhmm(ref) : str('no_programme')));
     const from = p ? p.start : ref - ref % SLOT;
     const to = p ? p.stop : from + SLOT;
     setText(this.tStart, Fmt.hhmm(from));
@@ -136,6 +153,9 @@ export class InfoPanel {
     const f = function (x: number) { return Fmt.progress(from, to, x); };
     const v = f(m.position);
     const b = m.ahead > 0 ? Math.max(f(m.position + m.ahead), v + 0.01) : v;
+    // архив идущей передачи (или слота около эфира): красная черта «эфир» — там, куда дойдёт архив
+    const now = Clock.now();
+    this.liveAt = m.archive && to > from && now >= from && now <= to ? (now - from) / (to - from) : -1;
     this.drawBar(v, b, m.seek !== null ? f(m.seek) : -1, m.archive);
     let rem = '';
     if (m.seek === null) {
@@ -149,8 +169,10 @@ export class InfoPanel {
       this.next.style.visibility = 'hidden';
       this.seekB.style.visibility = 'visible';
       this.placeSeek(f(m.seek));
+      this.placeLive();
     } else {
       this.seekB.style.visibility = 'hidden';
+      this.liveL.style.visibility = 'hidden';
       this.next.style.visibility = 'visible';
       this.setNext(m);
     }
@@ -180,23 +202,39 @@ export class InfoPanel {
     this.next.appendChild(document.createTextNode(s));
   }
 
+  /** Точка шкалы (0..1) по горизонтали в строке под шкалой (пузырь и метка — в ней) */
+  private barX(at: number): number {
+    const row = (this.seekB.parentNode as HTMLElement).getBoundingClientRect();
+    const bar = this.barBox.getBoundingClientRect();
+    return bar.left - row.left + bar.width * Math.max(0, Math.min(1, at));
+  }
+
+  /** Пузырь перемотки — под маркером шкалы, у краёв строки — прижат к ним */
   private placeSeek(at: number) {
-    const bw = this.barBox.offsetWidth;
-    const left = this.barBox.offsetLeft;
     const w = this.seekB.offsetWidth;
     const parentW = (this.seekB.parentNode as HTMLElement).offsetWidth;
-    let x = left + bw * Math.max(0, Math.min(1, at)) - w / 2;
-    x = Math.max(0, Math.min(x, parentW - w));
+    const x = Math.max(0, Math.min(this.barX(at) - w / 2, parentW - w));
     this.seekB.style.left = Math.round(x) + 'px';
+  }
+
+  /** Метка «Эфир» — под красной чертой, у краёв строки — прижата к ним */
+  private placeLive() {
+    if (this.liveAt < 0) { this.liveL.style.visibility = 'hidden'; return; }
+    const w = this.liveL.offsetWidth;
+    const total = (this.liveL.parentNode as HTMLElement).offsetWidth;
+    const x = this.barX(this.liveAt) - w / 2;
+    this.liveL.style.left = Math.round(Math.max(0, Math.min(x, total - w))) + 'px';
+    this.liveL.style.visibility = 'visible';
   }
 
   private drawBar(v: number, b: number, s: number, arch: boolean) {
     const st = this.barState;
+    const live = this.liveAt;
     const cw = this.barBox.offsetWidth, ch = this.barBox.offsetHeight;
     const dpr = U.dpr;
     const W = Math.round(cw * dpr), H = Math.round(ch * dpr);
-    if (st.v === v && st.b === b && st.s === s && st.arch === arch && this.bar.width === W && this.bar.height === H) return;
-    st.v = v; st.b = b; st.s = s; st.arch = arch;
+    if (st.v === v && st.b === b && st.s === s && st.arch === arch && st.live === live && this.bar.width === W && this.bar.height === H) return;
+    st.v = v; st.b = b; st.s = s; st.arch = arch; st.live = live;
     if (W <= 0 || H <= 0) return;
     if (this.bar.width !== W) this.bar.width = W;
     if (this.bar.height !== H) this.bar.height = H;
@@ -211,6 +249,13 @@ export class InfoPanel {
     c.globalAlpha = s >= 0 ? 0.6 : 1;
     roundRect(c, 0, top, cw * v, bottom, r, on);
     c.globalAlpha = 1;
+    if (live >= 0) {
+      // красная черта «эфир»: при перемотке — высотой с ползунок, без перемотки — не выше полосы
+      const half = U.px(0.12), edge = U.px(0.1);
+      const x = Math.max(half, Math.min(cw - half, cw * live));
+      if (s >= 0) roundRect(c, x - half, edge, x + half, ch - edge, half, C.LIVE);
+      else roundRect(c, x - half, top, x + half, bottom, half, C.LIVE);
+    }
     if (s >= 0) {
       const half = U.px(0.25), edge = U.px(0.1);
       const x = Math.max(half, Math.min(cw - half, cw * s));
@@ -229,6 +274,8 @@ export class InfoPanel {
     } else parts.push('live|' + str('live'));
     if (m.height > 0) parts.push('|' + (m.height >= 2000 ? '4K' : m.height >= 1000 ? 'FHD' : m.height >= 700 ? 'HD' : 'SD'));
     if (m.engine) parts.push('|' + m.engine);
+    if (m.audios > 1) parts.push('|' + str('audio_n', m.audios));
+    if (m.subtitles > 0) parts.push('|SUB');
     if (m.channel.hasArchive) parts.push('hist|' + str('x_d', m.channel.archiveDays));
     const key = parts.join('#');
     if (key === this.badgesKey) return;
@@ -342,6 +389,7 @@ export class InfoPanel {
     if (!this.visible) {
       this.visible = true;
       Anim.show(this.el);
+      this.titleMq.refresh();
     }
     clearTimeout(this.hideTimer);
     const self = this;
@@ -356,6 +404,7 @@ export class InfoPanel {
     this.visible = false;
     this.sticky = false;
     this.collapse();
+    this.titleMq.halt();
     Anim.hide(this.el);
   }
 
