@@ -10,7 +10,7 @@ import { Channel, Playlist } from '../data/models';
 import { inArchive, isMissed, Reminder, Reminders } from '../data/reminders';
 import { Repo } from '../data/repo';
 import { isHlsUrl, Playback } from '../player/playback';
-import { useNativeHls } from '../player/hlsmode';
+import { headersForNative, useNativeHls } from '../player/hlsmode';
 import { Cell } from './cells';
 import { el } from './dom';
 import { Fmt } from './fmt';
@@ -82,6 +82,8 @@ export class Tv {
   private forceHls = false;
   private viaProxy = false;
   private nativeFallback = false;
+  /** Канал играет встроенным плеером ради заголовков (на hls.js без них — заглушка): не откатываться на hls.js */
+  private nativeForHeaders = false;
   private autoHlsFallback = false;
   private streamStartedAt = 0;
   private seek: Seek | null = null;
@@ -581,7 +583,13 @@ export class Tv {
     let url = this.lastUrl;
     const proxied = this.viaProxy || Net.wantProxy(h);
     if (proxied) url = Net.proxyUrl(url, h);
-    const native = useNativeHls(Prefs.hlsEngine, this.state.archive !== null,
+    // заголовки, которые ставит встроенный плеер (Tizen AVPlay: User-Agent, Cookie), а прокси нет —
+    // только им: hls.js в браузере ТВ заголовков не ставит, а без них провайдер отдаёт заглушку
+    const pl = platform();
+    const hn = !proxied && pl.nativePlayer ? headersForNative(h, pl.nativeHeaders) : { native: false, lost: [] as string[] };
+    this.nativeForHeaders = hn.native;
+    if (hn.lost.length) console.warn('native player ignores headers', hn.lost.join(', '), '— needs a proxy');
+    const native = hn.native || useNativeHls(Prefs.hlsEngine, this.state.archive !== null,
       this.nativeFallback, this.autoHlsFallback);
     this.streamStartedAt = Date.now();
     console.log('play', ch.name, this.state.archive ? 'archive' : 'live', native ? 'native' : 'hlsjs', url.slice(0, 160));
@@ -707,7 +715,7 @@ export class Tv {
     // прямой эфир, один раз пробуем hls.js. Выбор пользователя не меняем.
     if (this.state.archive === null && Prefs.hlsEngine === 2 &&
         this.playback.engine === 'native' && !this.autoHlsFallback &&
-        !this.nativeFallback && isHlsUrl(this.lastUrl)) {
+        !this.nativeFallback && !this.nativeForHeaders && isHlsUrl(this.lastUrl)) {
       this.autoHlsFallback = true;
       console.warn('play fallback native -> hls.js', kind, detail);
       this.startStream();

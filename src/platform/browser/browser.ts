@@ -39,6 +39,7 @@ export const Browser: PlatformApi = {
   // QR — через WebRTC (страница perfect-tv.github.io/send/), если он есть
   qr: rtcAvailable() ? RtcQr : null,
   nativePlayer: null,
+  nativeHeaders: [],
   storageBytes: webStorageBytes,
   labels: WEB_LABELS,
   code: null,

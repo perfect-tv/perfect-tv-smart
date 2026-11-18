@@ -85,6 +85,8 @@ export const Tizen: PlatformApi = {
   // QR — через WebRTC (страница perfect-tv.github.io/send/)
   qr: rtcAvailable() ? RtcQr : null,
   get nativePlayer() { return avplayAvailable() ? createAvplay : null; },
+  // AVPlay: setStreamingProperty USER_AGENT и COOKIE; Referer и прочие заголовки он не ставит
+  get nativeHeaders() { return avplayAvailable() ? ['user-agent', 'cookie'] : []; },
   storageBytes: webStorageBytes,
   labels: WEB_LABELS,
   code: { dir: 'tizen', serviceApi: function () { return 0; }, install: installTizenCode, clear: clearTizenCode },

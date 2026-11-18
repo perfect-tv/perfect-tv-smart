@@ -6,8 +6,9 @@ import { screenSaver } from './saver';
  * в браузере ТВ (AC-3/MP2, I-кадры без IDR, телетекст в потоке), и свой User-Agent. Видео рисуется
  * на отдельной плоскости под страницей: элемент <object type="application/avplayer"> — «окно»
  * в неё, он стоит на месте <video> (под интерфейсом). Координаты setDisplayRect — в пикселях
- * экрана 1920×1080 при любом размере страницы. Заголовки канала: только User-Agent (без него —
- * UA браузера ТВ); Referer и прочие AVPlay не ставит — для них нужен прокси, на Tizen его нет.
+ * экрана 1920×1080 при любом размере страницы. Заголовки канала (setStreamingProperty, после open
+ * до prepare): User-Agent (без него — UA браузера ТВ) и Cookie; Referer и прочие AVPlay не ставит
+ * (в документации Samsung их нет) — для них нужен прокси, на Tizen его нет.
  */
 const w: any = typeof window !== 'undefined' ? window : {};
 
@@ -109,8 +110,15 @@ export function createAvplay(l: PlaybackListener): NativeEngine {
         // устройства по UA; свой «samsung-agent/1.1» AVPlay кое-где не пускают)
         const h = opts.headers || {};
         let ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-        for (const k in h) if (k.toLowerCase() === 'user-agent') ua = h[k];
+        let cookie = '';
+        for (const k in h) {
+          const n = k.toLowerCase();
+          if (n === 'user-agent') ua = h[k];
+          else if (n === 'cookie') cookie = h[k];
+        }
+        // свойства — после open и до prepare (состояние IDLE)
         if (ua) { try { av().setStreamingProperty('USER_AGENT', ua); } catch (e) { /* */ } }
+        if (cookie) { try { av().setStreamingProperty('COOKIE', cookie); } catch (e) { console.warn('avplay cookie', e); } }
         av().setListener({
           onbufferingstart: function () { if (my === gen) l.onState(true, true); },
           onbufferingprogress: function () { /* */ },

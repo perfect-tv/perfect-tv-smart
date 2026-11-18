@@ -50,7 +50,7 @@ const base = platform();
 usePlatform({
   id: 'epg-worker', label: base.label, boot: base.boot, exit: base.exit, cursorVisible: base.cursorVisible,
   onCursor: base.onCursor, defaultHlsEngine: 0, db: base.db, proxy: workerProxy, epg: null,
-  qr: null, nativePlayer: null, storageBytes: base.storageBytes, labels: base.labels, code: null,
+  qr: null, nativePlayer: null, nativeHeaders: [], storageBytes: base.storageBytes, labels: base.labels, code: null,
   kv: {
     load: function () { return Promise.resolve({ values: {}, persistent: true }); },
     save: function () { return Promise.resolve(); },

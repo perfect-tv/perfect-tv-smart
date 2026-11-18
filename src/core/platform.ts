@@ -37,6 +37,12 @@ export interface PlatformApi {
   qr: QrInbox | null;
   /** Свой встроенный плеер («плеер телевизора» в настройках); null — video.src */
   nativePlayer: ((l: PlaybackListener) => NativeEngine) | null;
+  /**
+   * Заголовки запроса (в нижнем регистре), которые ставит сам встроенный плеер (AVPlay на Tizen:
+   * user-agent, cookie). Канал с ними без прокси играет только встроенным плеером: hls.js в
+   * браузере ТВ их поставить не может. [] — не умеет
+   */
+  nativeHeaders: string[];
   /** Сколько занимают данные приложения, байт; −1 — неизвестно */
   storageBytes(): Promise<number>;
   /** Ключи строк, где слова зависят от платформы (страница «Сеть», ошибка «нужен прокси») */
@@ -143,6 +149,7 @@ const BARE: PlatformApi = {
   epg: null,
   qr: null,
   nativePlayer: null,
+  nativeHeaders: [],
   storageBytes: function () { return Promise.resolve(-1); },
   labels: SERVICE_LABELS,
   code: null,
