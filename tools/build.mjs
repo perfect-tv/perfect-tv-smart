@@ -98,7 +98,11 @@ async function build() {
   }
   if (useWorker) fs.writeFileSync(path.join(dist, 'epg-worker.js'), workerJs);
   else fs.rmSync(path.join(dist, 'epg-worker.js'), { force: true }); // воркер версий до 1.0.8
-  copy(path.join(root, 'node_modules/hls.js/dist/hls.min.js'), path.join(dist, 'hls.min.js'));
+  // hls.js идёт до app.js (порядок CODE_FILES), а полифилы — внутри app.js. На webOS 3
+  // hls 1.7 при инициализации вызывает Array.from, которого нет в Chromium 38: ставим
+  // полифилы в начало самого hls.min.js — от порядка загрузчика это больше не зависит.
+  const hlsPolyfills = await bundle('src/core/polyfills.ts');
+  fs.writeFileSync(path.join(dist, 'hls.min.js'), hlsPolyfills + '\n' + fs.readFileSync(path.join(root, 'node_modules/hls.js/dist/hls.min.js'), 'utf8'));
   copy(path.join(root, pdir, 'index.html'), path.join(dist, 'index.html'));
   if (platform === 'webos') copy(path.join(root, 'appinfo.json'), path.join(dist, 'appinfo.json'));
   // Tizen: config.xml с версией из appinfo.json

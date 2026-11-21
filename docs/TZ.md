@@ -57,7 +57,7 @@
 
 ### Видео
 
-- **HLS — hls.js 1.7** (MSE, есть с webOS 3), отдельным файлом `hls.min.js` (он уже в ES5). Почему не встроенный `<video>`:
+- **HLS — hls.js 1.7** (MSE, есть с webOS 3), отдельным файлом `hls.min.js` (он уже в ES5). В начале `hls.min.js` — полифилы `core/polyfills.ts` для Chromium 38: hls.js в порядке загрузчика идёт до `app.js` и при инициализации вызывает `Array.from`. Почему не встроенный `<video>`:
   - встроенный плеер не отдаёт `#EXT-X-PROGRAM-DATE-TIME` — время кадра в архиве не узнать;
   - «растущий» (EVENT) плейлист Flussonic встроенный плеер начинает у края эфира, а позицию начала окна не отдаёт; hls.js даёт окно (`levels[].details.fragments`), `startPosition`, время кадра (`fragment.programDateTime`) и `seekable`;
   - ключевые кадры без IDR (I-кадры с recovery point у вещательных кодеров): демультиплексор hls.js считает ключевыми и non-IDR срезы I-типа, так что такие потоки стартуют.
