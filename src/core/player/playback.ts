@@ -76,6 +76,12 @@ export class Playback {
   private codecFallback = false;
   /** Контейнер сегментов уже записан в журнал */
   private containerLogged = false;
+  /** Плеер должен играть (не пауза): по canplay пробуем снова после раннего play() */
+  private wantPlay = false;
+  private playPending = false;
+  /** Браузер заблокировал автозапуск со звуком — играем без звука до первой кнопки */
+  private mutedByAutoplay = false;
+  private unlockHandler: (() => void) | null = null;
   /** Свой плеер платформы (null — встроенный — это video.src) */
   private ext: NativeEngine | null = null;
   url = '';
@@ -94,7 +100,8 @@ export class Playback {
     v.addEventListener('playing', function () { self.l.onState(true, false); self.fireReady(); });
     v.addEventListener('waiting', function () { self.l.onState(!v.paused, true); });
     v.addEventListener('pause', function () { self.l.onState(false, false); });
-    v.addEventListener('canplay', function () { self.fireReady(); });
+    v.addEventListener('canplay', function () { self.tryPlay(); self.fireReady(); });
+    v.addEventListener('loadeddata', function () { self.tryPlay(); });
     v.addEventListener('loadedmetadata', function () { self.l.onVideoSize(v.videoWidth, v.videoHeight); });
     v.addEventListener('resize', function () { self.l.onVideoSize(v.videoWidth, v.videoHeight); });
     v.addEventListener('ended', function () { self.l.onEnded(); });
@@ -139,6 +146,54 @@ export class Playback {
     return platform().nativeHls;
   }
 
+  /**
+   * Запуск/повтор video.play(). Ранний play() до появления данных или до действия
+   * пользователя отклоняется — пробуем снова на canplay/loadeddata. Если Firefox
+   * (или другой браузер) запретил звук при автозапуске, стартуем без звука и
+   * включаем его по первой кнопке/клику.
+   */
+  private tryPlay() {
+    if (!this.wantPlay || this.playPending || this.extOn) return;
+    const v = this.video;
+    if (!v.paused) return;
+    this.playPending = true;
+    let p: any;
+    try { p = v.play(); }
+    catch (e) { this.playPending = false; this.onPlayRejected(e); return; }
+    if (p && p.then) p.then(() => { this.playPending = false; }, (e: any) => { this.playPending = false; this.onPlayRejected(e); });
+    else this.playPending = false;
+  }
+
+  private onPlayRejected(e: any) {
+    if (!this.wantPlay || this.mutedByAutoplay) return;
+    if (!e || e.name !== 'NotAllowedError') return;
+    console.warn('autoplay blocked, start muted until a key');
+    this.mutedByAutoplay = true;
+    this.video.muted = true;
+    this.bindUnlock();
+    this.tryPlay();
+  }
+
+  /** Первая кнопка/клик: снять mute и попробовать звук (жест пользователя уже есть) */
+  private bindUnlock() {
+    if (this.unlockHandler || typeof document === 'undefined') return;
+    const self = this;
+    this.unlockHandler = function () {
+      if (self.unlockHandler && typeof document !== 'undefined') {
+        document.removeEventListener('keydown', self.unlockHandler, true);
+        document.removeEventListener('mousedown', self.unlockHandler, true);
+      }
+      self.unlockHandler = null;
+      if (self.mutedByAutoplay) {
+        self.mutedByAutoplay = false;
+        self.video.muted = false;
+        self.tryPlay();
+      }
+    };
+    document.addEventListener('keydown', this.unlockHandler, true);
+    document.addEventListener('mousedown', this.unlockHandler, true);
+  }
+
   play(url: string, opts: PlayOpts) {
     this.stop();
     this.url = url;
@@ -150,6 +205,7 @@ export class Playback {
     this.recovered = 0;
     this.codecFallback = false;
     this.containerLogged = false;
+    this.wantPlay = true;
     const v = this.video;
     const hlsUrl = opts.forceHls || isHlsUrl(url);
     if (hlsUrl && !opts.native && Playback.hlsSupported()) {
@@ -164,8 +220,7 @@ export class Playback {
       v.src = url;
       v.load();
     }
-    const p: any = v.play();
-    if (p && p.catch) p.catch(function () { /* автозапуск без звука — не наш случай; ошибки придут событием */ });
+    this.tryPlay();
     this.l.onState(false, true);
   }
 
@@ -256,6 +311,7 @@ export class Playback {
   private get extOn(): boolean { return this.engine === 'native' && !!this.ext; }
 
   stop() {
+    this.wantPlay = false;
     clearTimeout(this.stallTimer);
     if (this.ext) this.ext.stop();
     if (this.hls) {
@@ -272,10 +328,11 @@ export class Playback {
   }
 
   get paused(): boolean { return this.extOn ? this.ext!.paused : this.video.paused; }
-  pause() { if (this.extOn) this.ext!.pause(); else this.video.pause(); }
+  pause() { this.wantPlay = false; if (this.extOn) this.ext!.pause(); else this.video.pause(); }
   resume() {
     if (this.extOn) { this.ext!.resume(); return; }
-    const p: any = this.video.play(); if (p && p.catch) p.catch(function () { /* */ });
+    this.wantPlay = true;
+    this.tryPlay();
   }
 
   /** Медиа-время, мс */
