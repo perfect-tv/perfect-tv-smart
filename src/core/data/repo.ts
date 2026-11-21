@@ -68,14 +68,29 @@ export class Repo {
   }
 
   addPlaylist(name: string, url: string): Promise<Playlist> {
-    let id = 1, sort = 0;
-    for (let i = 0; i < this.playlistsCache.length; i++) {
-      id = Math.max(id, this.playlistsCache[i].id + 1);
-      sort = Math.max(sort, this.playlistsCache[i].sort + 1);
-    }
-    const p: Playlist = { id: id, name: name, url: url, epgMode: 0, userEpg: [], headerEpg: [], loadedAt: 0, channelsCount: 0, error: '', sort: sort };
-    this.playlistsCache.push(p);
-    return Db.put('playlists', p).then(function () { return p; });
+    const self = this;
+    // Список в памяти может быть пуст или устареть (настройки/QR открыты до loadPlaylists,
+    // чтение из резервного хранилища). Свободный id считаем и по самой базе: иначе Db.put
+    // перезапишет чужой плейлист с тем же id — чаще всего первый.
+    return Db.all<Playlist>('playlists').then(function (stored) {
+      const known: { [id: string]: boolean } = {};
+      for (let i = 0; i < self.playlistsCache.length; i++) known[String(self.playlistsCache[i].id)] = true;
+      for (let i = 0; i < stored.length; i++) {
+        const k = String(stored[i].id);
+        if (!known[k]) { self.playlistsCache.push(stored[i]); known[k] = true; }
+      }
+      self.playlistsCache.sort(function (a, b) { return a.sort - b.sort || a.id - b.id; });
+      let id = 1, sort = 0;
+      for (let i = 0; i < self.playlistsCache.length; i++) {
+        const pid = Number(self.playlistsCache[i].id);
+        const ps = Number(self.playlistsCache[i].sort);
+        if (isFinite(pid)) id = Math.max(id, pid + 1);
+        if (isFinite(ps)) sort = Math.max(sort, ps + 1);
+      }
+      const p: Playlist = { id: id, name: name, url: url, epgMode: 0, userEpg: [], headerEpg: [], loadedAt: 0, channelsCount: 0, error: '', sort: sort };
+      self.playlistsCache.push(p);
+      return Db.put('playlists', p).then(function () { return p; });
+    });
   }
 
   savePlaylist(p: Playlist): Promise<void> {
