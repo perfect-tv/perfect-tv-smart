@@ -630,12 +630,19 @@ function trimQueue() {
  * gzip-поток с Content-Encoding: gzip, браузер ТВ распаковывает сам); не вышло — из базы
  * (WebSocket / IndexedDB) весь канал и отбор по суткам здесь.
  */
+/** Пересекает ли передача [start, stop) сутки a…b (UTC, по номеру дня) */
+export function overlapsDays(start: number, stop: number, a: number, b: number): boolean {
+  return stop > a * DAY && start < (b + 1) * DAY;
+}
+
 function programmePacks(s: string, x: string, a: number, b: number): Promise<any[]> {
   const fallback = function () {
     return Db.all<any>('prog', prefixRange([s, x])).then(function (packs) {
       const out: any[] = [];
       for (let i = 0; i < packs.length; i++) {
-        const p = unpackProgramme(packs[i]).filter(function (r: any[]) { const d = Math.floor(r[0] / DAY); return d >= a && d <= b; });
+        // передача могла начаться вчера и идти в начале сегодняшних суток — берём по пересечению,
+        // а не только по дню начала (иначе после полуночи у неё «нет программы»)
+        const p = unpackProgramme(packs[i]).filter(function (r: any[]) { return overlapsDays(r[0], r[1], a, b); });
         if (p.length) out.push({ s: packs[i].s, x: packs[i].x, l: packs[i].l, n: packs[i].n, p: p });
       }
       return out;
@@ -652,7 +659,11 @@ function localDays(s: string, x: string): Promise<number[][]> {
     const by: { [d: number]: number } = {};
     for (let i = 0; i < packs.length; i++) {
       const p = unpackProgramme(packs[i]);
-      for (let j = 0; j < p.length; j++) { const d = Math.floor(p[j][0] / DAY); by[d] = (by[d] || 0) + 1; }
+      for (let j = 0; j < p.length; j++) {
+        // передача через полночь относится к обоим суткам
+        const d0 = Math.floor(p[j][0] / DAY), d1 = Math.floor(Math.max(p[j][0], p[j][1] - 1) / DAY);
+        for (let d = d0; d <= d1; d++) by[d] = (by[d] || 0) + 1;
+      }
     }
     return Object.keys(by).map(function (d) { return [+d, by[+d]]; }).sort(function (a, b) { return a[0] - b[0]; });
   });

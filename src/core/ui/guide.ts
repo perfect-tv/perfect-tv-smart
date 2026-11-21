@@ -323,9 +323,12 @@ export class GuideLayer implements Layer {
       let k = 0;
       for (let i = 0; i < this.plRows.length; i++) if (this.plRows[i].start <= keep) k = i;
       this.plIndex = k;
-    } else { this.plIndex = this.liveIndex(); this.plJump = true; }
+    } else { this.plIndex = this.liveIndex(); }
     const di = this.plPending !== null ? this.plPending : this.plRows.length ? this.dayOf(Math.min(this.plIndex, this.plRows.length - 1)) : -1;
     this.dateIndex = Math.max(0, days.indexOf(di));
+    // список перестроен (сменили канал или пришли новые сутки) — ставим прокрутку сразу,
+    // без анимации: иначе при переключении канала список «дёргается» вслед за догрузкой
+    this.plJump = true;
     this.applyArchiveFocus();
   }
 
