@@ -12,7 +12,7 @@ export function css(): string {
 
 /** Облегчённый интерфейс без прозрачности: сплошные фоны вместо градиентов (палитра — applyPalette в u.ts) */
 const LITE = `
-#menu-shade{display:none}
+#menu-shade{background:none}
 .fade-top,.fade-bottom{display:none!important}
 #info{padding-top:2.4rem}
 `;
