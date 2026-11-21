@@ -1,7 +1,7 @@
 import { RtcQr, rtcAvailable } from '../../core/qrrtc';
 import { PlatformApi } from '../../core/platform';
-import { IdbDb } from '../../core/data/idb';
 import { BrowserKv } from './kv';
+import { BrowserDb } from './db';
 import { makeProxy } from './proxy';
 import { Cursor } from './cursor';
 import { browserName, WEB_LABELS, webStorageBytes } from './web';
@@ -35,7 +35,7 @@ export const Browser: PlatformApi = {
   // без MSE играет сам video; HEVC-откат на него не делаем: в Chromium встроенного HLS нет
   nativeHls: typeof window !== 'undefined' && !((window as any).MediaSource || (window as any).WebKitMediaSource),
   kv: BrowserKv,
-  db: IdbDb,
+  db: BrowserDb,
   proxy: proxy,
   epg: null,
   // QR — через WebRTC (страница perfect-tv.github.io/send/), если он есть
