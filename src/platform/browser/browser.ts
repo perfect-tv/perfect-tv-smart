@@ -32,6 +32,8 @@ export const Browser: PlatformApi = {
   onCursor: Cursor.on,
   // нет MSE (Safari на iPhone, часть ТВ) — HLS играет сам элемент video
   defaultHlsEngine: typeof window !== 'undefined' && ((window as any).MediaSource || (window as any).WebKitMediaSource) ? 0 : 2,
+  // без MSE играет сам video; HEVC-откат на него не делаем: в Chromium встроенного HLS нет
+  nativeHls: typeof window !== 'undefined' && !((window as any).MediaSource || (window as any).WebKitMediaSource),
   kv: BrowserKv,
   db: IdbDb,
   proxy: proxy,

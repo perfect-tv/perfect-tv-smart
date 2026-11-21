@@ -25,6 +25,8 @@ export interface PlatformApi {
   onCursor(l: (visible: boolean) => void): void;
   /** Движок HLS по умолчанию (Prefs.hlsEngine): 0 — hls.js, 2 — встроенный плеер */
   defaultHlsEngine: number;
+  /** Встроенный плеер умеет HLS: video.src (webOS) или NativeEngine (Tizen); false — только hls.js */
+  nativeHls: boolean;
   /** Настройки: синхронный кэш Storage2 поверх него */
   kv: KvBackend;
   /** Записи: плейлисты, каналы, источники программы, сопоставление */
@@ -143,6 +145,7 @@ const BARE: PlatformApi = {
   cursorVisible: function () { return false; },
   onCursor: function () { /* */ },
   defaultHlsEngine: 0,
+  nativeHls: false,
   kv: memKv,
   db: { get: noDb, put: noDb, putAll: noDb, delete: noDb, all: noDb, deleteWhere: noDb, deleteRange: noDb, drop: noDb },
   proxy: null,

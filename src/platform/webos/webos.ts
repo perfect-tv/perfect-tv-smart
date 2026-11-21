@@ -30,6 +30,7 @@ export const WebOS: PlatformApi = {
   onCursor: function (l) { Luna.onCursor(l); },
   // встроенный плеер webOS сам играет HLS и MPEG-TS; в браузере для проверки — hls.js
   defaultHlsEngine: Luna.isWebOS ? 2 : 0,
+  nativeHls: Luna.isWebOS,
   kv: WebosKv,
   db: WebosDb,
   proxy: WebosProxy,

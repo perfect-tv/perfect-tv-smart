@@ -120,6 +120,7 @@ export class Tv {
       onReady: function () { self.onReady(); },
       onEnded: function () { self.onStreamEnded(); },
       onError: function (kind, detail) { self.onStreamError(kind, detail); },
+      onUnsupportedCodec: function (codec) { self.onUnsupportedCodec(codec); },
       onVideoSize: function (_w, h) { if (self.state.height !== h) { self.state.height = h; self.updateInfo(); } },
       onTracks: function () { if (self.menu) self.menu.refresh(); if (!self.pending) self.updateInfo(); },
     });
@@ -699,6 +700,19 @@ export class Tv {
     if (a.continued) return;
     a.continued = true;
     this.restorePosition(this.position());
+  }
+
+  /**
+   * hls.js нашёл HEVC, но MSE его не принимает. Если встроенный плеер умеет HLS
+   * (video.src на webOS, AVPlay на Tizen), играем им — так 4K HEVC не теряется.
+   */
+  private onUnsupportedCodec(codec: string) {
+    const ch = this.state.channel;
+    if (!ch || this.playback.engine !== 'hls') return;
+    console.warn('play fallback hls.js -> native: HEVC unsupported by MSE', codec, ch.name);
+    this.nativeFallback = true;
+    Prefs.setPlayFix(ch.key, 1);
+    this.startStream();
   }
 
   private onStreamError(kind: 'network' | 'media' | 'live', detail: string) {

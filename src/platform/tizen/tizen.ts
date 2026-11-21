@@ -78,6 +78,7 @@ export const Tizen: PlatformApi = {
   onCursor: Cursor.on,
   // AVPlay есть — «авто»: эфир им (AC-3, I-кадры без IDR, свой User-Agent), архив — hls.js
   get defaultHlsEngine() { return avplayAvailable() ? 2 : 0; },
+  get nativeHls() { return avplayAvailable(); },
   kv: BrowserKv,
   db: IdbDb,
   proxy: null,

@@ -19,3 +19,31 @@ export function useNativeHls(mode: number, archive: boolean, channelNativeFix: b
   if (mode === 0) return false;      // пользователь явно выбрал hls.js
   return !archive && !autoFallback; // авто: эфир native, архив hls.js
 }
+
+/** Кодек HEVC (hvc1…/hev1…) из строки CODECS варианта; '' — не HEVC */
+export function hevcCodec(codecs: string): string {
+  const list = String(codecs || '').split(',');
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i].trim();
+    if (/^(hvc1|hev1)\./i.test(c)) return c;
+  }
+  return '';
+}
+
+/**
+ * Есть ли в вариантах HEVC и принимает ли его MSE (isSupported — MediaSource.isTypeSupported).
+ * codec — первый найденный HEVC-кодек (для журнала и сообщения).
+ */
+export function hevcSupport(levels: any[], isSupported: (codec: string) => boolean): { found: boolean; supported: boolean; codec: string } {
+  let found = false, supported = false, codec = '';
+  for (let i = 0; i < (levels ? levels.length : 0); i++) {
+    const l = levels[i] || {};
+    const attrs = l.attrs || {};
+    const c = hevcCodec(l.videoCodec || attrs.CODECS || l.codecs || '');
+    if (!c) continue;
+    found = true;
+    if (!codec) codec = c;
+    if (isSupported(c)) supported = true;
+  }
+  return { found: found, supported: supported, codec: codec };
+}

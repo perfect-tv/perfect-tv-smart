@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { useNativeHls } from '../src/core/player/hlsmode';
+import { hevcCodec, hevcSupport, useNativeHls } from '../src/core/player/hlsmode';
 
 describe('Выбор HLS на webOS', () => {
   it('авто — эфир через плеер телевизора', () => expect(useNativeHls(2, false, false, false)).toBe(true));
@@ -25,5 +25,24 @@ describe('заголовки канала и встроенный плеер', (
     expect(headersForNative({ Referer: 'r' }, avplay).native).toBe(false);
     expect(headersForNative(null, avplay).native).toBe(false);
     expect(headersForNative({ 'User-Agent': 'x' }, []).native).toBe(false);
+  });
+});
+
+describe('HEVC в hls.js и MSE', () => {
+  it('кодек HEVC ищется в CODECS варианта', () => {
+    expect(hevcCodec('hvc1.2.4.L153.B0,mp4a.40.2')).toBe('hvc1.2.4.L153.B0');
+    expect(hevcCodec('hev1.1.6.L120.90')).toBe('hev1.1.6.L120.90');
+    expect(hevcCodec('avc1.640028,mp4a.40.2')).toBe('');
+  });
+  it('есть HEVC, MSE принимает — остаёмся на hls.js', () => {
+    const levels = [{ videoCodec: 'avc1.640028' }, { attrs: { CODECS: 'hvc1.2.4.L153.B0,mp4a.40.2', RESOLUTION: '3840x2160' } }];
+    expect(hevcSupport(levels, function (c) { return c === 'hvc1.2.4.L153.B0'; })).toEqual({ found: true, supported: true, codec: 'hvc1.2.4.L153.B0' });
+  });
+  it('есть HEVC, MSE не принимает — нужен встроенный плеер', () => {
+    const levels = [{ videoCodec: 'hev1.1.6.L120.90' }];
+    expect(hevcSupport(levels, function () { return false; })).toEqual({ found: true, supported: false, codec: 'hev1.1.6.L120.90' });
+  });
+  it('без HEVC — встроенный плеер не нужен', () => {
+    expect(hevcSupport([{ videoCodec: 'avc1.640028' }], function () { return false; })).toEqual({ found: false, supported: false, codec: '' });
   });
 });

@@ -19,6 +19,6 @@ export const About = {
 
 /** Сторонний код в сборке и данные: название, версия, лицензия, правообладатель */
 export const THIRD_PARTY: { name: string; version: string; license: string; owner: string; url: string }[] = [
-  { name: 'hls.js', version: '1.5.20', license: 'Apache License 2.0', owner: 'Brightcove, Dailymotion, contributors', url: 'github.com/video-dev/hls.js' },
+  { name: 'hls.js', version: '1.7.4', license: 'Apache License 2.0', owner: 'Brightcove, Dailymotion, contributors', url: 'github.com/video-dev/hls.js' },
   { name: 'fflate', version: '0.8.3', license: 'MIT', owner: 'Arjun Barrett', url: 'github.com/101arrowz/fflate' },
 ];

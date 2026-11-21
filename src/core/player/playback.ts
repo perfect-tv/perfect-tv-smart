@@ -1,4 +1,5 @@
 import { platform } from '../platform';
+import { hevcSupport } from './hlsmode';
 
 /**
  * Воспроизведение (docs/TZ.md, §8): один <video> на всё время; HLS — hls.js (MSE), остальное
@@ -10,6 +11,8 @@ import { platform } from '../platform';
  * pdtBase + currentTime. Позиции в seekTo — миллисекунды от начала окна, как в Android-версии.
  */
 declare const Hls: any;
+/** Проверка HEVC в MSE — один раз на запуск (в журнал) */
+let mseHevcLogged = false;
 
 export interface PlayOpts {
   /** Начать с начала окна (архив; иначе hls.js начнёт «растущий» плейлист у края) */
@@ -47,6 +50,8 @@ export interface PlaybackListener {
   onEnded(): void;
   /** Фатальная ошибка: network — сеть / CORS, media — декодер / формат, live — отстали от окна эфира */
   onError(kind: 'network' | 'media' | 'live', detail: string): void;
+  /** hls.js: в вариантах HEVC, MSE его не принимает — нужен встроенный плеер (если он умеет HLS) */
+  onUnsupportedCodec?(codec: string): void;
   onVideoSize(w: number, h: number): void;
   onTracks(): void;
 }
@@ -67,6 +72,10 @@ export class Playback {
   private isLive = false;
   private recovered = 0;
   private stallTimer = 0;
+  /** Уже переключились на встроенный плеер из-за HEVC без MSE */
+  private codecFallback = false;
+  /** Контейнер сегментов уже записан в журнал */
+  private containerLogged = false;
   /** Свой плеер платформы (null — встроенный — это video.src) */
   private ext: NativeEngine | null = null;
   url = '';
@@ -100,6 +109,36 @@ export class Playback {
     return typeof Hls !== 'undefined' && Hls.isSupported();
   }
 
+  /** MediaSource платформы (Chromium 38 — WebKitMediaSource) */
+  private static mediaSource(): any {
+    const w: any = typeof window !== 'undefined' ? window : {};
+    if (w.MediaSource || w.WebKitMediaSource) return w.MediaSource || w.WebKitMediaSource;
+    if (typeof Hls !== 'undefined' && Hls.getMediaSource) return Hls.getMediaSource();
+    return null;
+  }
+
+  /** Принимает ли MSE видео с таким кодеком */
+  private static mseCodec(codec: string): boolean {
+    const ms = Playback.mediaSource();
+    if (!ms || typeof ms.isTypeSupported !== 'function') return false;
+    try { return !!ms.isTypeSupported('video/mp4; codecs="' + codec + '"'); } catch (e) { return false; }
+  }
+
+  /** В журнал: умеет ли MSE HEVC (hvc1/hev1), включая 4K Main10 */
+  private static logMseHevc() {
+    if (mseHevcLogged) return;
+    mseHevcLogged = true;
+    const samples = ['hvc1.1.6.L120.90', 'hvc1.2.4.L153.B0', 'hev1.1.6.L120.90', 'hev1.2.4.L153.B0'];
+    const out: string[] = [];
+    for (let i = 0; i < samples.length; i++) out.push(samples[i] + '=' + (Playback.mseCodec(samples[i]) ? 'yes' : 'no'));
+    console.log('mse', Playback.mediaSource() ? 'yes' : 'no', 'hevc', out.join(', '), 'native hls', platform().nativeHls ? 'yes' : 'no');
+  }
+
+  /** Встроенный плеер умеет HLS: свой (AVPlay) или video.src платформы */
+  private nativeHlsAvailable(): boolean {
+    return platform().nativeHls;
+  }
+
   play(url: string, opts: PlayOpts) {
     this.stop();
     this.url = url;
@@ -109,6 +148,8 @@ export class Playback {
     this.pdtBaseMs = null;
     this.isLive = false;
     this.recovered = 0;
+    this.codecFallback = false;
+    this.containerLogged = false;
     const v = this.video;
     const hlsUrl = opts.forceHls || isHlsUrl(url);
     if (hlsUrl && !opts.native && Playback.hlsSupported()) {
@@ -146,11 +187,40 @@ export class Playback {
       capLevelToPlayerSize: false,
     });
     this.hls = hls;
+    Playback.logMseHevc();
+    hls.on(Hls.Events.MANIFEST_LOADED, function (_e: any, data: any) {
+      if (self.hls !== hls) return;
+      const levels = (data && data.levels) || [];
+      const h = hevcSupport(levels, Playback.mseCodec);
+      const codecs: string[] = [];
+      for (let i = 0; i < levels.length; i++) {
+        const l: any = levels[i] || {};
+        const c = String(l.videoCodec || (l.attrs && l.attrs.CODECS) || '');
+        if (c) codecs.push((l.width || '?') + 'x' + (l.height || '?') + ' ' + l.bitrate + ' ' + c + (l.attrs && l.attrs['VIDEO-RANGE'] ? ' ' + l.attrs['VIDEO-RANGE'] : ''));
+      }
+      console.log('hls manifest', levels.length, 'levels:', codecs.join('; ') || 'CODECS нет');
+      if (h.found) {
+        console.log('hls hevc', h.codec, 'mse', h.supported ? 'yes' : 'no');
+        if (!h.supported && !self.codecFallback) {
+          self.codecFallback = true;
+          if (self.nativeHlsAvailable()) {
+            console.warn('hls hevc: MSE cannot play, native fallback', h.codec);
+            if (self.l.onUnsupportedCodec) self.l.onUnsupportedCodec(h.codec);
+          } else {
+            console.warn('hls hevc: MSE cannot play, native HLS unavailable', h.codec);
+          }
+        }
+      }
+    });
     hls.on(Hls.Events.LEVEL_LOADED, function (_e: any, data: any) {
       if (self.hls !== hls) return;
       const d = data.details;
       self.isLive = !!d.live;
       const f = d.fragments && d.fragments[0];
+      if (!self.containerLogged) {
+        self.containerLogged = true;
+        console.log('hls segments', f && f.initSegment ? 'fMP4' : 'MPEG-TS', 'live', !!d.live);
+      }
       if (f && f.programDateTime) self.pdtBaseMs = f.programDateTime - f.start * 1000;
       // «растущий» плейлист: hls.js мог начать у края, хотя просили начало окна
       if (self.fromStart && !self.startSeekDone && f) {
