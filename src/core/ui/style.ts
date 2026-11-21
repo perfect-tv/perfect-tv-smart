@@ -46,7 +46,8 @@ body.nocursor,body.nocursor *{cursor:none!important}
 #buffering{position:absolute;left:50%;top:50%;width:5rem;height:5rem;margin:-2.5rem 0 0 -2.5rem;border-radius:50%;border:0.45rem solid ${C.t(0.18)};border-top-color:${W}}
 
 /* тост */
-#toast{position:absolute;left:50%;top:2.4rem;-webkit-transform:translateX(-50%);transform:translateX(-50%);max-width:70%;padding:0.9rem 1.6rem;border-radius:0.6rem;background:${C.PANEL};font-size:1.35rem;text-align:center;z-index:50}
+#toast,#toast-sticky{position:absolute;left:50%;top:2.4rem;-webkit-transform:translateX(-50%);transform:translateX(-50%);max-width:70%;padding:0.9rem 1.6rem;border-radius:0.6rem;background:${C.PANEL};font-size:1.35rem;text-align:center;white-space:pre-line;z-index:50}
+#toast-sticky{z-index:49}
 
 /* логотип */
 .logo{position:relative;background:${C.FILL_SOFT};border-radius:0.4rem;overflow:hidden;-webkit-flex:none;flex:none;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center}

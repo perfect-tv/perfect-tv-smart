@@ -2,6 +2,7 @@
  "_name": "Русский",
  "_plural": "ru",
  "loading_channels": "Каналы загружаются…",
+ "autoplay_muted": "Плеер запущен без звука\nНажмите любую кнопку для включения",
  "no_channels": "Нет каналов",
  "no_programme": "Нет программы",
  "programme_is_loading": "Программа загружается…",

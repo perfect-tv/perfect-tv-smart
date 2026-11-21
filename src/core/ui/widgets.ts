@@ -44,11 +44,16 @@ export function hintRow(box: HTMLElement, items: [string, string][]) {
 /** Тост вверху по центру */
 export class Toast {
   private el: HTMLElement;
+  /** Отдельная плашка, которая не перекрывается обычными тостами (например, «нет звука») */
+  private stickyEl: HTMLElement;
   private timer = 0;
   constructor(parent: HTMLElement) {
     this.el = el('div', '', null, parent);
     this.el.id = 'toast';
     this.el.style.display = 'none';
+    this.stickyEl = el('div', '', null, parent);
+    this.stickyEl.id = 'toast-sticky';
+    this.stickyEl.style.display = 'none';
   }
   show(text: string, ms = 2500) {
     setText(this.el, text);
@@ -56,6 +61,14 @@ export class Toast {
     clearTimeout(this.timer);
     const e = this.el;
     this.timer = window.setTimeout(function () { Anim.hide(e); }, ms);
+  }
+  /** Сообщение без таймера: скрыть — hideSticky */
+  showSticky(text: string) {
+    setText(this.stickyEl, text);
+    if (this.stickyEl.style.display === 'none') Anim.show(this.stickyEl);
+  }
+  hideSticky() {
+    this.stickyEl.style.display = 'none';
   }
   hide() { clearTimeout(this.timer); this.el.style.display = 'none'; }
 }

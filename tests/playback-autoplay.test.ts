@@ -25,11 +25,14 @@ function blockedVideo(): any {
 describe('автозапуск со звуком запрещён', () => {
   it('повторяет play без звука, а не оставляет вечную загрузку', async () => {
     const video = blockedVideo();
-    const pb = new Playback(video, quiet);
+    const states: boolean[] = [];
+    const listener: PlaybackListener = Object.assign({}, quiet, { onAutoplayMute: function (m: boolean) { states.push(m); } });
+    const pb = new Playback(video, listener);
     pb.play('http://x/live.ts', { fromStart: false, native: true });
     await new Promise(function (r) { setTimeout(r, 0); });
     expect(video.playCalls).toBe(2);
     expect(video.muted).toBe(true);
     expect(video.paused).toBe(false);
+    expect(states).toEqual([true]);
   });
 });

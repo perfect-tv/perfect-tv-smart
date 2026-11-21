@@ -121,6 +121,10 @@ export class Tv {
       onEnded: function () { self.onStreamEnded(); },
       onError: function (kind, detail) { self.onStreamError(kind, detail); },
       onUnsupportedCodec: function (codec) { self.onUnsupportedCodec(codec); },
+      onAutoplayMute: function (muted) {
+        if (muted) self.toast.showSticky(str('autoplay_muted'));
+        else self.toast.hideSticky();
+      },
       onVideoSize: function (_w, h) { if (self.state.height !== h) { self.state.height = h; self.updateInfo(); } },
       onTracks: function () { if (self.menu) self.menu.refresh(); if (!self.pending) self.updateInfo(); },
     });

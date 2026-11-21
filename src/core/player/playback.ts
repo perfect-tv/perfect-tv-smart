@@ -52,6 +52,8 @@ export interface PlaybackListener {
   onError(kind: 'network' | 'media' | 'live', detail: string): void;
   /** hls.js: в вариантах HEVC, MSE его не принимает — нужен встроенный плеер (если он умеет HLS) */
   onUnsupportedCodec?(codec: string): void;
+  /** Автозапуск со звуком запрещён: true — играем без звука до действия пользователя */
+  onAutoplayMute?(muted: boolean): void;
   onVideoSize(w: number, h: number): void;
   onTracks(): void;
 }
@@ -81,7 +83,7 @@ export class Playback {
   private playPending = false;
   /** Браузер заблокировал автозапуск со звуком — играем без звука до первой кнопки */
   private mutedByAutoplay = false;
-  private unlockHandler: (() => void) | null = null;
+  private unlockHandler: ((e?: Event) => void) | null = null;
   /** Свой плеер платформы (null — встроенный — это video.src) */
   private ext: NativeEngine | null = null;
   url = '';
@@ -170,28 +172,30 @@ export class Playback {
     console.warn('autoplay blocked, start muted until a key');
     this.mutedByAutoplay = true;
     this.video.muted = true;
+    if (this.l.onAutoplayMute) this.l.onAutoplayMute(true);
     this.bindUnlock();
     this.tryPlay();
   }
 
-  /** Первая кнопка/клик: снять mute и попробовать звук (жест пользователя уже есть) */
+  /** Любое действие пользователя: снять mute и попробовать звук */
   private bindUnlock() {
-    if (this.unlockHandler || typeof document === 'undefined') return;
+    if (this.unlockHandler || typeof window === 'undefined') return;
+    const events = ['keydown', 'mousedown', 'mousemove', 'wheel', 'touchstart'];
     const self = this;
-    this.unlockHandler = function () {
-      if (self.unlockHandler && typeof document !== 'undefined') {
-        document.removeEventListener('keydown', self.unlockHandler, true);
-        document.removeEventListener('mousedown', self.unlockHandler, true);
-      }
+    this.unlockHandler = function (e?: Event) {
+      // первое действие только включает звук — интерфейсу оно не передаётся
+      if (e && e.stopPropagation) e.stopPropagation();
+      const w: any = typeof window !== 'undefined' ? window : null;
+      if (w) for (let i = 0; i < events.length; i++) w.removeEventListener(events[i], self.unlockHandler, true);
       self.unlockHandler = null;
       if (self.mutedByAutoplay) {
         self.mutedByAutoplay = false;
         self.video.muted = false;
+        if (self.l.onAutoplayMute) self.l.onAutoplayMute(false);
         self.tryPlay();
       }
     };
-    document.addEventListener('keydown', this.unlockHandler, true);
-    document.addEventListener('mousedown', this.unlockHandler, true);
+    for (let i = 0; i < events.length; i++) window.addEventListener(events[i], this.unlockHandler, true);
   }
 
   play(url: string, opts: PlayOpts) {
