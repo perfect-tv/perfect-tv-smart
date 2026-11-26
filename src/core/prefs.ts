@@ -95,7 +95,8 @@ export const Prefs = {
   /** Прокси (JS-сервис): 0 — авто (заголовки канала и ошибки CORS), 1 — всегда, 2 — никогда */
   get proxyMode() { return int('proxy_mode', 0, 0, 2); }, set proxyMode(v: number) { put('proxy_mode', v); },
   /** Отрисовка гида: 0 — HTML (DOM, перерисовываются только изменившиеся элементы), 1 — Canvas */
-  get guideRender() { return int('guide_render', 0, 0, 1); }, set guideRender(v: number) { put('guide_render', v); },
+  /** Отрисовка гида и панелей плеера: 0 — HTML, 1 — Canvas; на Tizen по умолчанию Canvas (HTML там появляется с задержкой 200–300 мс) */
+  get guideRender() { return int('guide_render', platform().id === 'tizen' ? 1 : 0, 0, 1); }, set guideRender(v: number) { put('guide_render', v); },
   /** HLS: 0 — hls.js, 1 — native, 2 — auto (native эфир, hls.js архив). */
   get hlsEngine() { return int('hls_engine', platform().defaultHlsEngine, 0, 2); }, set hlsEngine(v: number) { put('hls_engine', v); },
 

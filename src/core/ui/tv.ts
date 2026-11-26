@@ -16,6 +16,8 @@ import { el } from './dom';
 import { Fmt } from './fmt';
 import { GuideLayer } from './guide';
 import { InfoPanel } from './info';
+import { CanvasOsd, PlayerCanvas } from './overlay';
+import type { CarouselView, InfoView, OsdView } from './views';
 import { Keys } from './keys';
 import { Layer } from './layer';
 import { Logos } from './logos';
@@ -57,10 +59,12 @@ export class Tv {
   playlist: Playlist | null = null;
   readonly playback: Playback;
   readonly ui: HTMLElement;
-  readonly info: InfoPanel;
+  info: InfoView;
   readonly toast: Toast;
-  private osd: Osd;
-  private carousel: Carousel;
+  private osd: OsdView;
+  private carousel: CarouselView;
+  /** Отрисовка панелей плеера: 0 — DOM, 1 — Canvas (Prefs.guideRender) */
+  private overlayRender = -1;
   private buffering: Buffering;
   readonly guide: GuideLayer;
   readonly keys: Keys;
@@ -127,9 +131,10 @@ export class Tv {
     this.playback.subtitleLang = Prefs.subtitleLang;
     this.playback.setAspect(Prefs.aspect);
     this.buffering = new Buffering(ui);
-    this.info = new InfoPanel(ui);
-    this.carousel = new Carousel(ui);
-    this.osd = new Osd(ui);
+    this.info = null as any;
+    this.carousel = null as any;
+    this.osd = null as any;
+    this.buildOverlays();
     this.toast = new Toast(ui);
     this.guide = new GuideLayer(this);
     this.keys = new Keys(function () { return self.top(); });
@@ -139,6 +144,29 @@ export class Tv {
     Bus.on('channels', function (pid: number) { self.onChannelsChanged(pid); });
     Reminders.onDue = function (r) { self.notifyReminder(r); };
     setInterval(function () { self.tick(); }, 1000);
+  }
+
+  /**
+   * Панели плеера (инфопанель, карусель, набор номера) — по настройке «Отрисовка интерфейса»:
+   * DOM или Canvas (overlay.ts). Смена настройки — панели пересоздаются.
+   */
+  buildOverlays() {
+    const mode = Prefs.guideRender;
+    if (mode === this.overlayRender) return;
+    this.overlayRender = mode;
+    const onHide = this.info ? this.info.onHide : null;
+    if (this.info) { this.info.destroy(); this.carousel.destroy(); this.osd.destroy(); }
+    if (mode === 1) {
+      const pc = new PlayerCanvas(this.ui);
+      this.info = pc.info;
+      this.carousel = pc.carousel;
+      this.osd = new CanvasOsd(this.ui);
+    } else {
+      this.info = new InfoPanel(this.ui);
+      this.carousel = new Carousel(this.ui);
+      this.osd = new Osd(this.ui);
+    }
+    this.info.onHide = onHide;
   }
 
   // ================================================================ запуск
@@ -848,7 +876,7 @@ export class Tv {
     this.switchGroup = g.key;
     this.updateInfo();
     this.info.show(Prefs.infoHide);
-    this.carousel.show(list, ni, this.info.el);
+    this.carousel.show(list, ni, this.info.panelHeight());
     clearTimeout(this.switchTimer);
     const self = this;
     this.switchTimer = window.setTimeout(function () {

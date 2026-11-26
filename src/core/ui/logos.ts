@@ -18,7 +18,7 @@ const MAX_FAILED = 150; // Список недоступных URL не долж
 const cache: { [url: string]: Entry } = {};
 const order: string[] = [];
 let failed: { [url: string]: number } = Storage2.json<{ [url: string]: number }>('logo_failed', {});
-let onLoad: (() => void) | null = null;
+const onLoad: (() => void)[] = [];
 let redrawQueued = false;
 
 function now() { return Date.now(); }
@@ -76,9 +76,9 @@ function get(u: string, cb?: () => void): HTMLImageElement | null {
 function flush(e: Entry) {
   const w = e.waiters.splice(0, e.waiters.length);
   for (let i = 0; i < w.length; i++) w[i]();
-  if (onLoad && !redrawQueued) {
+  if (onLoad.length && !redrawQueued) {
     redrawQueued = true;
-    setTimeout(function () { redrawQueued = false; if (onLoad) onLoad(); }, 50);
+    setTimeout(function () { redrawQueued = false; for (let i = 0; i < onLoad.length; i++) onLoad[i](); }, 50);
   }
 }
 
@@ -105,7 +105,8 @@ export function monoColor(key: string): string {
 
 export const Logos = {
   /** Перерисовка Canvas, когда картинка загрузилась */
-  setOnLoad(f: () => void) { onLoad = f; },
+  /** Картинка логотипа загрузилась — перерисовать (гид, панели плеера на Canvas) */
+  setOnLoad(f: () => void) { onLoad.push(f); },
 
   clearFailed() {
     failed = {};

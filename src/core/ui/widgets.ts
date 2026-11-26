@@ -4,6 +4,7 @@ import { Channel } from '../data/models';
 import { Anim, el, setText, visible } from './dom';
 import { Logos } from './logos';
 import { U } from './u';
+import type { CarouselView, OsdView } from './views';
 
 /**
  * Стрелки в подсказках — линиями (SVG), а не символами шрифта: глифы стрелок стоят у нижнего
@@ -61,7 +62,7 @@ export class Toast {
 }
 
 /** Набор номера: номер, логотип, название; ниже — каналы, которые выберутся следующей цифрой */
-export class Osd {
+export class Osd implements OsdView {
   private el: HTMLElement;
   private num: HTMLElement;
   private logo: HTMLElement;
@@ -103,10 +104,11 @@ export class Osd {
     this.el.style.display = '';
   }
   hide() { this.el.style.display = 'none'; }
+  destroy() { if (this.el.parentNode) this.el.parentNode.removeChild(this.el); }
 }
 
 /** Карусель каналов над инфопанелью: выбранная карточка по центру в белой рамке */
-export class Carousel {
+export class Carousel implements CarouselView {
   private el: HTMLElement;
   private cards: HTMLElement[] = [];
   private logos: HTMLElement[] = [];
@@ -124,7 +126,7 @@ export class Carousel {
       this.names.push(el('div', 'nm el', null, c));
     }
   }
-  show(list: Channel[], index: number, panel: HTMLElement) {
+  show(list: Channel[], index: number, panelHeight: number) {
     const n = list.length;
     if (!n) return;
     const mid = Carousel.SIZE >> 1;
@@ -141,11 +143,11 @@ export class Carousel {
       card.className = 'card' + (k === mid ? ' on' : '');
     }
     // над содержимым панели (её верх — плавное затемнение)
-    const ph = panel.style.display === 'none' ? 0 : panel.offsetHeight - U.px(5.6);
-    this.el.style.bottom = Math.round(Math.max(0, ph) + U.px(0.8)) + 'px';
+    this.el.style.bottom = Math.round(panelHeight + U.px(0.8)) + 'px';
     this.el.style.display = '';
   }
   hide() { if (this.el.style.display !== 'none') Anim.hide(this.el); }
+  destroy() { if (this.el.parentNode) this.el.parentNode.removeChild(this.el); }
 }
 
 /**

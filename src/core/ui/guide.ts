@@ -1405,7 +1405,7 @@ export class GuideLayer implements Layer {
 
 const ARROW_RE = /(←|→|↑|↓)/;
 
-function keycapWidth(c: CanvasRenderingContext2D, key: string): number {
+export function keycapWidth(c: CanvasRenderingContext2D, key: string): number {
   c.font = U.font(1.1);
   const parts = key.split(ARROW_RE);
   let w = 0;
@@ -1419,7 +1419,7 @@ function keycapWidth(c: CanvasRenderingContext2D, key: string): number {
 }
 
 /** Клавиша: стрелки — линиями (глифы шрифта стоят у нижнего края), остальное — текстом */
-function drawKeycap(c: CanvasRenderingContext2D, key: string, x: number, cy: number, color: string) {
+export function drawKeycap(c: CanvasRenderingContext2D, key: string, x: number, cy: number, color: string) {
   c.font = U.font(1.1);
   c.fillStyle = color;
   c.strokeStyle = color;

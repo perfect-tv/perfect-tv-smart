@@ -8,6 +8,7 @@ import { hintRow } from './widgets';
 import { Logos } from './logos';
 import { DomMarquee } from './marquee';
 import { C, lite, roundRect, U } from './u';
+import type { InfoView } from './views';
 
 export interface InfoModel {
   channel: Channel;
@@ -40,7 +41,7 @@ function hhmmss(sec: number): string {
  * передача, шкала с буфером и «ещё N мин» (в архиве — время кадра), «Далее» — две передачи
  * (при перемотке — пузырь), часы; ↓ — закрепить (подсказки), ↓↓ — описание и «Далее на канале».
  */
-export class InfoPanel {
+export class InfoPanel implements InfoView {
   readonly el: HTMLElement;
   visible = false;
   sticky = false;
@@ -421,4 +422,8 @@ export class InfoPanel {
   }
 
   relabel() { this.paintBackground(); this.badgesKey = ''; this.hintKey = ''; this.nextKey = ''; }
+
+  panelHeight(): number { return this.visible ? Math.max(0, this.el.offsetHeight - U.px(5.6)) : 0; }
+
+  destroy() { this.hide(); if (this.el.parentNode) this.el.parentNode.removeChild(this.el); }
 }
