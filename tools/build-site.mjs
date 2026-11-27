@@ -21,7 +21,8 @@ fs.cpSync(path.join(root, 'site'), out, { recursive: true });
 // без обработки Jekyll: файлы как есть
 fs.writeFileSync(path.join(out, '.nojekyll'), '');
 if (process.env.SITE_CNAME) fs.writeFileSync(path.join(out, 'CNAME'), process.env.SITE_CNAME.trim() + '\n');
-const version = JSON.parse(fs.readFileSync(path.join(root, 'appinfo.json'), 'utf8')).version;
+const appinfo = JSON.parse(fs.readFileSync(path.join(root, 'appinfo.json'), 'utf8'));
+const version = appinfo.version;
 fs.writeFileSync(path.join(out, 'version.json'), JSON.stringify({ version: version, built: new Date().toISOString() }) + '\n');
 
 // Код для обновления без переустановки (docs/TZ.md, «Обновление без переустановки»): /webos/ и
@@ -42,6 +43,47 @@ for (const [plat, distDir, service] of [['webos', 'dist', serviceApi], ['tizen',
   }
   fs.writeFileSync(path.join(dir, 'version.json'), JSON.stringify({ version: version, shell: shell, service: service, files: files }, null, 1) + '\n');
 }
+
+// Репозиторий для webOS Homebrew Channel («кружка»): /webos.json в корне сайта.
+// Берёт собранный out/top.rootu.perfecttv_<версия>_all.ipk (или собирает его, если ещё нет).
+const ipkName = `${appinfo.id}_${version}_all.ipk`;
+const ipkPath = path.join(root, 'out', ipkName);
+if (!fs.existsSync(ipkPath)) {
+  fs.rmSync(path.join(root, 'dist/dev-playlist.txt'), { force: true });
+  execFileSync(path.join(root, 'node_modules/.bin/ares-package'), ['-o', path.join(root, 'out'), path.join(root, 'dist'), path.join(root, 'service')], { stdio: 'inherit' });
+}
+const ipkBuf = fs.readFileSync(ipkPath);
+const ipkSha256 = crypto.createHash('sha256').update(ipkBuf).digest('hex');
+const siteBase = process.env.SITE_CNAME ? `https://${process.env.SITE_CNAME.trim()}` : 'https://perfect-tv.github.io';
+const repoSlug = process.env.GITHUB_REPOSITORY || 'perfect-tv/perfect-tv-smart';
+const iconUri = `${siteBase}/largeIcon.png`;
+const ipkUrl = `https://github.com/${repoSlug}/releases/download/v${version}/${ipkName}`;
+const webosJson = {
+  paging: { page: 1, count: 1, maxPage: 1, itemsTotal: 1 },
+  packages: [
+    {
+      id: appinfo.id,
+      title: appinfo.title,
+      iconUri: iconUri,
+      manifest: {
+        id: appinfo.id,
+        version: version,
+        type: appinfo.type || 'web',
+        title: appinfo.title,
+        appDescription: 'Perfect TV IPTV player (M3U, Xtream Codes, Stalker/MAG, XMLTV EPG, Archive)',
+        iconUri: iconUri,
+        sourceUrl: `https://github.com/${repoSlug}`,
+        rootRequired: false,
+        ipkUrl: ipkUrl,
+        ipkHash: { sha256: ipkSha256 },
+        ipkSize: ipkBuf.length,
+      },
+      shortDescription: 'IPTV player',
+      fullDescriptionUrl: `${siteBase}/about/`,
+    },
+  ],
+};
+fs.writeFileSync(path.join(out, 'webos.json'), JSON.stringify(webosJson, null, 2) + '\n');
 
 let n = 0, size = 0;
 (function walk(d) { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); const s = fs.statSync(p); if (s.isDirectory()) walk(p); else { n++; size += s.size; } } })(out);
