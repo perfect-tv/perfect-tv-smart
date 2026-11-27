@@ -18,7 +18,7 @@ function legacy(): { [k: string]: string } {
   try {
     for (let i = 0; i < old.length; i++) {
       const k = old.key(i);
-      if (k === null) continue;
+      if (k === null || k === 'ptv:ws-migrated') continue;
       const v = old.getItem(k);
       if (v !== null) out[k] = v;
     }
@@ -65,7 +65,7 @@ export const WebosKv: KvBackend = {
   reset(rows) {
     // Полный сброс также очищает старое localStorage: оно больше не пишется и не должно импортироваться снова
     const old = ls();
-    if (old) try { old.clear(); } catch (e) { console.warn('reset legacy settings', e); }
+    if (old) try { old.clear(); old.setItem('ptv:ws-migrated', '1'); } catch (e) { console.warn('reset legacy settings', e); }
     return SocketDb.put('settings', [{ key: 'migrated:settings', value: '1' }].concat(rows));
   },
 };

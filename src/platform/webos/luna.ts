@@ -93,7 +93,7 @@ export const Luna = {
     return '';
   },
 
-  /** Поднять JS-сервис с прокси; подписка держит его живым, пока открыто приложение */
+  /**Поднять JS-сервис с прокси; подписка держит его живым, пока открыто приложение */
   startService() {
     if (serviceStarted || !isWebOS) return;
     serviceStarted = true;
@@ -109,6 +109,13 @@ export const Luna = {
         console.warn('service: failed', r.errorCode || '', r.errorText || r.error || JSON.stringify(r));
       }
     });
+  },
+
+  /** Повторить подписку на сервис (если сервис уснул после чтения загрузчика) */
+  ensureService() {
+    if (!isWebOS) return;
+    serviceStarted = false;
+    Luna.startService();
   },
 
   /** Выход: на ТВ — в лаунчер, в браузере — закрыть вкладку */

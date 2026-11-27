@@ -31,6 +31,8 @@ const store: CodeStore = {
   meta: function () {
     // в браузере (разработка) сервиса нет — встроенный код
     if (!Luna.isWebOS) return Promise.resolve({ rec: null, boot: '', bad: [] });
+    // сразу подписываемся на сервис (keepAlive + порт :47380), чтобы он не уснул за время чтения кода
+    Luna.startService();
     // первый вызов и запускает сервис: ждём дольше
     return call('codeMeta', {}, 6000).then(function (r: any) {
       const m = r.meta;

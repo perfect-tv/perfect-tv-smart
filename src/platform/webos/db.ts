@@ -19,6 +19,13 @@ function sqliteRecords(store: string, values: any[]): { key: any; value: any }[]
  */
 let migrating: Promise<void> | null = null;
 const migrationStores = ['playlists', 'channels', 'sources', 'map', 'epgch', 'prog'];
+const MIGRATED_LS = 'ptv:ws-migrated';
+function isWsMigrated(): boolean {
+  try { return typeof localStorage !== 'undefined' && localStorage.getItem(MIGRATED_LS) === '1'; } catch (e) { return false; }
+}
+function markWsMigrated() {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(MIGRATED_LS, '1'); } catch (e) { /* */ }
+}
 function migrateStore(store: string): Promise<void> {
   const marker = 'migrated:' + store;
   return SocketDb.get<string>('settings', marker).then(function (m) {
@@ -54,11 +61,12 @@ export const WebosDb: RecordDb & { migrate(): Promise<void> } = {
     if (migrating) return migrating;
     migrating = SocketDb.available().then(function (ok) {
       if (!ok) { console.warn('SQLite websocket unavailable: legacy database only'); return; }
+      if (isWsMigrated()) return;
       let chain: Promise<void> = Promise.resolve();
       migrationStores.forEach(function (store) {
         chain = chain.then(function () { return migrateStore(store); });
       });
-      return chain;
+      return chain.then(function () { markWsMigrated(); });
     }).catch(function (e) {
       console.error('SQLite migration interrupted:', e);
       migrating = null; // next startup/call may safely retry
@@ -68,6 +76,7 @@ export const WebosDb: RecordDb & { migrate(): Promise<void> } = {
   get<T>(store: string, key: any): Promise<T | undefined> {
     return SocketDb.available().then(function (ok) {
       if (ok) return SocketDb.get<T>(store, key).then(function (r) { return r.present ? r.value : undefined; });
+      if (isWsMigrated()) throw new Error('SQLite WebSocket offline: read rejected (' + store + ')');
       return FileDb.active().then(function (active) {
         if (!active) return IdbDb.get<T>(store, key);
         return FileDb.get<T>(store, key).then(function (r) { return r.present ? r.value : IdbDb.get<T>(store, key); });
@@ -98,6 +107,7 @@ export const WebosDb: RecordDb & { migrate(): Promise<void> } = {
       if (ok) return SocketDb.all<T>(store, range).then(function (rows) {
         return rows.map(function (r) { return r.value; });
       });
+      if (isWsMigrated()) throw new Error('SQLite WebSocket offline: list rejected (' + store + ')');
       return FileDb.active().then(function (active) {
         if (!active) return IdbDb.all<T>(store, range);
         return Promise.all([IdbDb.all<T>(store, range), FileDb.list<T>(store, range)]).then(function (both) {
@@ -134,6 +144,7 @@ export const WebosDb: RecordDb & { migrate(): Promise<void> } = {
       ]).then(function () {
         return ok ? SocketDb.reset().then(function () {
           migrating = null;
+          markWsMigrated();
           return SocketDb.put('settings', migrationStores.map(function (s) {
             return { key: 'migrated:' + s, value: '1' };
           }));

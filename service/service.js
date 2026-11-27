@@ -78,6 +78,14 @@ service.register('ping', function (message) {
 var code = require('./codestore.js');
 code.OPS.forEach(function (op) {
   service.register(op, function (message) {
+    // Загрузчик оболочки будит сервис вызовом codeMeta ещё до запуска app.js:
+    // сразу поднимаем HTTP-прокси и WebSocket на :47380, чтобы к старту приложения они уже слушали.
+    if (op === 'codeMeta') {
+      proxy.start(proxy.PORT, function (err) {
+        proxyReady = !err;
+        proxyError = err ? String(err.message || err) : '';
+      });
+    }
     code.dispatch(op, message.payload || {}, function (err, result) {
       if (err) return message.respond({ returnValue: false, errorText: String(err.message || err) });
       result = result || {};

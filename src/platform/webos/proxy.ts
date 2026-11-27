@@ -35,7 +35,7 @@ function checkLuna(): Promise<boolean> {
 
 function check(): Promise<boolean> {
   if (Luna.isWebOS) Luna.startService();
-  const tries = Luna.isWebOS ? 6 : 1;
+  const tries = Luna.isWebOS ? 12 : 1;
   let i = 0;
   function attempt(): Promise<boolean> {
     return xhr('GET', PROXY + '/ping', { timeout: 1500 }).then(function (x) {
@@ -48,7 +48,10 @@ function check(): Promise<boolean> {
       if (proxyOk) return true;
       return checkLuna().then(function () { return false; });
     }, function () {
-      if (++i < tries) return sleep(500).then(attempt);
+      if (++i < tries) {
+        if (Luna.isWebOS && i === 4 && (Luna as any).ensureService) (Luna as any).ensureService();
+        return sleep(500).then(attempt);
+      }
       proxyOk = false;
       proxyChecked = true;
       console.warn('HTTP proxy absent; checking Luna transport');

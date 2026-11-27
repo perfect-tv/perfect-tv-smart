@@ -58,8 +58,6 @@ export function startApp() {
 }
 
 function boot() {
-  // загрузчику оболочки — код поднялся (иначе откат на встроенный), затем фоновые проверки обновлений
-  CodeUpdate.start();
   Log.install();
   console.log('platform', platform().label(), 'screen', window.innerWidth + 'x' + window.innerHeight);
   U.init();
@@ -69,8 +67,11 @@ function boot() {
   }).then(function () {
     Prefs.reload();
     initUi();
+    // загрузчику оболочки — код и интерфейс поднялись (иначе откат на встроенный), затем фоновые проверки обновлений
+    CodeUpdate.start();
   }, function (e) {
     console.error('storage startup', e);
     initUi();
+    CodeUpdate.start();
   });
 }

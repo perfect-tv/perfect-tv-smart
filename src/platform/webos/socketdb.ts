@@ -4,6 +4,7 @@
  * ES5 output; no URL, fetch, TextEncoder, Buffer, or modern WebSocket APIs.
  */
 import { FileRecord, KeyRange } from '../../core/data/db';
+import { Luna } from './luna';
 
 const WS_URL = 'ws://127.0.0.1:47380/db';
 let socket: WebSocket | null = null;
@@ -67,17 +68,15 @@ function raw(op: string, data?: any): Promise<any> {
     catch (e) { clearTimeout(timer); delete pending[id]; reject(e); }
   });
 }
-function connect(): Promise<boolean> {
-  if (ready && socket && socket.readyState === 1) return Promise.resolve(true);
-  if (connecting) return connecting;
-  connecting = new Promise<boolean>(function (resolve) {
+function connectOnce(timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>(function (resolve) {
     if (typeof WebSocket === 'undefined') { resolve(false); return; }
     let ws: WebSocket;
     try { ws = new WebSocket(WS_URL); } catch (e) { console.warn('sqlite websocket create', e); resolve(false); return; }
     let settled = false;
     const deadline = setTimeout(function () {
       if (!settled) { settled = true; console.warn('sqlite websocket connect timeout'); try { ws.close(); } catch (e) { /* */ } resolve(false); }
-    }, 5000);
+    }, timeoutMs);
     function complete(ok: boolean) {
       if (settled) return;
       settled = true; clearTimeout(deadline); resolve(ok);
@@ -100,7 +99,23 @@ function connect(): Promise<boolean> {
     };
     ws.onerror = function () { complete(false); };
     ws.onclose = function () { complete(false); if (socket === ws) disconnect('closed'); };
-  }).then(function (ok) {
+  });
+}
+function connect(): Promise<boolean> {
+  if (ready && socket && socket.readyState === 1) return Promise.resolve(true);
+  if (connecting) return connecting;
+  const maxTries = Luna.isWebOS ? 4 : 1;
+  let attempt = 0;
+  function tryConnect(): Promise<boolean> {
+    attempt++;
+    return connectOnce(3500).then(function (ok) {
+      if (ok || attempt >= maxTries) return ok;
+      // Сервис мог перезапускаться после чтения кода загрузчиком — разбудить и повторить
+      if ((Luna as any).ensureService) (Luna as any).ensureService();
+      return new Promise<boolean>(function (r) { setTimeout(function () { r(tryConnect()); }, 600); });
+    });
+  }
+  connecting = tryConnect().then(function (ok) {
     if (!ok) connecting = null;
     return ok;
   });

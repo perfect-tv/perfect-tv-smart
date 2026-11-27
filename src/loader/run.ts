@@ -74,14 +74,20 @@ export function runLoader(store: CodeStore) {
   function runDownloaded(rec: CodeRecord, files: { [name: string]: string }) {
     api.version = rec.version;
     api.source = 'downloaded';
+    const failToBuiltin = function (reason: string) {
+      if (confirmed) return;
+      confirmed = true;
+      console.error('downloaded code ' + rec.version + ' failed (' + reason + '), back to built-in ' + builtin);
+      const reload = function () { location.reload(); };
+      timeout(store.state('', rec.version), 3000).then(reload, reload);
+    };
+    // если за 20 с интерфейс так и не поднялся (не вызван ptvLoader.ok()) — откат на встроенный
+    setTimeout(function () { if (!confirmed) failToBuiltin('boot timeout'); }, 20000);
     // ошибка до ok() — код не поднялся: в сбойные и заново на встроенном
     const prev = window.onerror;
     window.onerror = function () {
       if (!confirmed) {
-        confirmed = true;
-        console.error('downloaded code ' + rec.version + ' failed, back to built-in ' + builtin);
-        const reload = function () { location.reload(); };
-        timeout(store.state('', rec.version), 3000).then(reload, reload);
+        failToBuiltin('runtime error');
         return true;
       }
       return prev ? (prev as any).apply(window, arguments) : false;

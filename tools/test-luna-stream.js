@@ -102,6 +102,12 @@ server.listen(0, '127.0.0.1', function () {
     check('ошибки HTTP не скрываются', open.returnValue && open.status === 404);
     return call('streamClose', { id: open.id });
   }).then(function () {
+    var startedOnMeta = false;
+    proxy.start = function (port, cb) { startedOnMeta = true; cb(null); };
+    return call('codeMeta').then(function (meta) {
+      check('codeMeta сразу поднимает HTTP-прокси для загрузчика', meta.returnValue && startedOnMeta);
+    });
+  }).then(function () {
     check('методы сервиса зарегистрированы', ['start', 'ping', 'streamOpen', 'streamRead', 'streamClose'].every(function (name) { return typeof handlers[name] === 'function'; }));
     console.log('Luna integration tests passed');
   }).then(function () {
