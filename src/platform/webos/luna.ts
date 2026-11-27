@@ -76,6 +76,7 @@ if (typeof document !== 'undefined') {
 }
 
 let serviceStarted = false;
+let servicePromise: Promise<any> | null = null;
 
 export const Luna = {
   isWebOS: isWebOS,
@@ -93,29 +94,38 @@ export const Luna = {
     return '';
   },
 
-  /**Поднять JS-сервис с прокси; подписка держит его живым, пока открыто приложение */
-  startService() {
-    if (serviceStarted || !isWebOS) return;
+  /** Поднять JS-сервис с прокси; подписка держит его живым, пока открыто приложение */
+  startService(): Promise<any> {
+    if (!isWebOS) return Promise.resolve(null);
+    if (serviceStarted && servicePromise) return servicePromise;
     serviceStarted = true;
     console.log('service: luna start');
-    luna('luna://' + SERVICE_ID + '/start', { subscribe: true, ua: typeof navigator !== 'undefined' ? navigator.userAgent : '' }, function (r) {
-      // ответ сервиса: порт прокси или ошибка (нет сервиса, не открылся порт)
-      if (r.returnValue) {
-        console.log('service: Luna started, Node', r.node || '?', 'HTTP', r.proxyReady ? 'ready' : 'unavailable');
-        if (r.proxyError) console.warn('service: TCP listener failed', r.proxyError);
-      }
-      else {
-        serviceStarted = false; // следующий Net.checkProxy сможет повторить запуск
-        console.warn('service: failed', r.errorCode || '', r.errorText || r.error || JSON.stringify(r));
-      }
+    servicePromise = new Promise<any>(function (resolve) {
+      let settled = false;
+      const t = setTimeout(function () { if (!settled) { settled = true; resolve(null); } }, 8000);
+      luna('luna://' + SERVICE_ID + '/start', { subscribe: true, ua: typeof navigator !== 'undefined' ? navigator.userAgent : '' }, function (r) {
+        // ответ сервиса: порт прокси или ошибка (нет сервиса, не открылся порт)
+        if (r && r.returnValue) {
+          console.log('service: Luna started, Node', r.node || '?', 'HTTP', r.proxyReady ? 'ready' : 'unavailable');
+          if (r.proxyError) console.warn('service: TCP listener failed', r.proxyError);
+        }
+        else {
+          serviceStarted = false; // следующий Net.checkProxy сможет повторить запуск
+          servicePromise = null;
+          console.warn('service: failed', (r && r.errorCode) || '', (r && (r.errorText || r.error)) || JSON.stringify(r));
+        }
+        if (!settled) { settled = true; clearTimeout(t); resolve(r || null); }
+      });
     });
+    return servicePromise;
   },
 
   /** Повторить подписку на сервис (если сервис уснул после чтения загрузчика) */
-  ensureService() {
-    if (!isWebOS) return;
+  ensureService(): Promise<any> {
+    if (!isWebOS) return Promise.resolve(null);
     serviceStarted = false;
-    Luna.startService();
+    servicePromise = null;
+    return Luna.startService();
   },
 
   /** Выход: на ТВ — в лаунчер, в браузере — закрыть вкладку */

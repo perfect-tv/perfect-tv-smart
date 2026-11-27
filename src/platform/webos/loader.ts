@@ -27,14 +27,17 @@ function readFile(name: string, version: string): Promise<string> {
   return next();
 }
 
+declare const APP_VERSION: string;
+
 const store: CodeStore = {
   meta: function () {
     // в браузере (разработка) сервиса нет — встроенный код
     if (!Luna.isWebOS) return Promise.resolve({ rec: null, boot: '', bad: [] });
     // сразу подписываемся на сервис (keepAlive + порт :47380), чтобы он не уснул за время чтения кода
     Luna.startService();
+    const builtin = typeof APP_VERSION === 'string' ? APP_VERSION : '';
     // первый вызов и запускает сервис: ждём дольше
-    return call('codeMeta', {}, 6000).then(function (r: any) {
+    return call('codeMeta', { builtin: builtin }, 6000).then(function (r: any) {
       const m = r.meta;
       const rec: CodeRecord | null = m && m.version ? { version: m.version, shell: m.shell | 0, service: m.service | 0, files: m.files || {}, saved: m.saved || 0 } : null;
       return { rec: rec, boot: r.boot || '', bad: r.bad || [] };

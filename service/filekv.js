@@ -114,7 +114,7 @@ function init(cb) {
     var names = Object.keys(SMALL), i = 0;
     (function next(e) {
       if (e) return done(e);
-      if (i >= names.length) return cleanRoot(function () { migrate(function (me) { if (!me) gcSoon(0); done(me); }); });
+      if (i >= names.length) return cleanRoot(function () { migrate(function (me) { if (!me) gcSoon(30000); done(me); }); });
       loadStore(names[i++], next);
     })();
   });

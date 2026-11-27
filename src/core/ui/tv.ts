@@ -191,6 +191,7 @@ export class Tv {
       if (self.playlist !== p) return;
       self.catalog = cat;
       if (cat.channels.length) self.startFromLast();
+      else self.openGuide();
       if (!cat.channels.length || self.repo.isStale(p)) self.refreshPlaylist(p, false);
       else self.repo.refreshEpg(p, false);
     }, function (e) {

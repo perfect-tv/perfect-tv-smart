@@ -44,10 +44,25 @@ function saveState(s) {
   fs.renameSync(STATE + '.tmp', STATE);
 }
 
+function compareVersions(a, b) {
+  var x = String(a || '').split('.'), y = String(b || '').split('.');
+  for (var i = 0; i < Math.max(x.length, y.length); i++) {
+    var p = parseInt(x[i] || '0', 10) || 0, q = parseInt(y[i] || '0', 10) || 0;
+    if (p !== q) return p < q ? -1 : 1;
+  }
+  return 0;
+}
+
 /** Сведения о скачанном коде (null — нет), метка запуска и сбойные версии */
 function meta(q, cb) {
   var m = readJson(path.join(CUR, 'meta.json'), null);
   var s = state();
+  // если пакет переустановили или обновили (встроенная версия >= скачанной) — удалить устаревший скачанный код
+  if (m && q && typeof q.builtin === 'string' && q.builtin && compareVersions(m.version, q.builtin) <= 0) {
+    rmrf(CUR);
+    m = null;
+    if (s.boot) { s.boot = ''; try { saveState(s); } catch (e) { /* */ } }
+  }
   cb(null, { meta: m, boot: s.boot, bad: s.bad });
 }
 

@@ -45,7 +45,7 @@ export const WebOS: PlatformApi = {
   // код с сайта скачивает и хранит сервис (service/codestore.js): браузерное хранилище webOS переполняется
   code: {
     dir: 'webos',
-    serviceApi: function () { return WebosProxy.api; },
+    serviceApi: function () { return WebosProxy.api || (Luna.isWebOS ? 1 : 0); },
     install: function (base, m) {
       return Luna.requestService('codeFetch', { base: base, version: m.version, shell: m.shell, service: m.service, files: m.files }, 180000).then(function (r: any) {
         if (!r || !r.returnValue) throw new Error(r && r.errorText || 'codeFetch failed');

@@ -34,31 +34,37 @@ function checkLuna(): Promise<boolean> {
 }
 
 function check(): Promise<boolean> {
-  if (Luna.isWebOS) Luna.startService();
-  const tries = Luna.isWebOS ? 12 : 1;
-  let i = 0;
-  function attempt(): Promise<boolean> {
-    return xhr('GET', PROXY + '/ping', { timeout: 1500 }).then(function (x) {
-      proxyOk = x.status === 200 && x.responseText.indexOf('"ok":true') >= 0;
-      if (proxyOk) { try { serviceApi = JSON.parse(x.responseText).api || 0; } catch (e) { /* */ } }
-      console.log('proxy', proxyOk ? 'ok' : 'bad answer ' + x.status);
-      // UA браузера ТВ — сервису: им он подписывает запросы, которые делает сам (программа, Luna-поток)
-      if (proxyOk && typeof navigator !== 'undefined') xhr('GET', PROXY + '/ua?v=' + encodeURIComponent(navigator.userAgent), { timeout: 3000 }).then(null, function () { /* */ });
-      proxyChecked = true;
-      if (proxyOk) return true;
-      return checkLuna().then(function () { return false; });
-    }, function () {
-      if (++i < tries) {
-        if (Luna.isWebOS && i === 4 && (Luna as any).ensureService) (Luna as any).ensureService();
-        return sleep(500).then(attempt);
-      }
-      proxyOk = false;
-      proxyChecked = true;
-      console.warn('HTTP proxy absent; checking Luna transport');
-      return checkLuna().then(function () { return false; });
-    });
-  }
-  return attempt();
+  const ready = Luna.isWebOS ? (Promise.resolve(Luna.startService()) || Promise.resolve(null)) : Promise.resolve(null);
+  return ready.then(function (sr: any) {
+    if (sr && sr.returnValue && sr.api) serviceApi = sr.api;
+    if (sr && sr.returnValue) lunaOk = true;
+    const tries = Luna.isWebOS ? 6 : 1;
+    let i = 0;
+    function attempt(): Promise<boolean> {
+      return xhr('GET', PROXY + '/ping', { timeout: 1500 }).then(function (x) {
+        proxyOk = x.status === 200 && x.responseText.indexOf('"ok":true') >= 0;
+        if (proxyOk) { try { serviceApi = JSON.parse(x.responseText).api || serviceApi || 0; } catch (e) { /* */ } }
+        console.log('proxy', proxyOk ? 'ok' : 'bad answer ' + x.status);
+        // UA браузера ТВ — сервису: им он подписывает запросы, которые делает сам (программа, Luna-поток)
+        if (proxyOk && typeof navigator !== 'undefined') xhr('GET', PROXY + '/ua?v=' + encodeURIComponent(navigator.userAgent), { timeout: 3000 }).then(null, function () { /* */ });
+        proxyChecked = true;
+        if (proxyOk) return true;
+        return checkLuna().then(function () { return false; });
+      }, function () {
+        if (++i < tries) {
+          if (Luna.isWebOS && i === 2 && (Luna as any).ensureService) {
+            return Promise.resolve((Luna as any).ensureService()).then(function () { return sleep(300).then(attempt); });
+          }
+          return sleep(400).then(attempt);
+        }
+        proxyOk = false;
+        proxyChecked = true;
+        console.warn('HTTP proxy absent; checking Luna transport');
+        return checkLuna().then(function () { return false; });
+      });
+    }
+    return attempt();
+  });
 }
 
 function url(u: string, headers?: { [k: string]: string } | null): string {
