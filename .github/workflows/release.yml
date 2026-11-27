@@ -46,11 +46,12 @@ jobs:
             echo "Тег $GITHUB_REF_NAME не совпадает с версией appinfo.json ($V)" >&2; exit 1
           fi
 
-      - name: LG webOS — .ipk и установщик
+      - name: LG webOS — .ipk
+        run: npm run package
+
+      - name: LG webOS — установщик
         if: github.ref_type == 'tag'
-        run: |
-          npm run package
-          npm run installer
+        run: npm run installer
 
       - name: Samsung Tizen — .wgt без подписи
         if: github.ref_type == 'tag'
@@ -59,10 +60,11 @@ jobs:
           rm -f dist-tizen/*signature*.xml dist-tizen/.manifest.tmp
           (cd dist-tizen && zip -q -r "../out/PerfectTV-${{ steps.ver.outputs.version }}.wgt" .)
 
-      - name: Сайт
+      - name: Сайт (включая /webos.json для Homebrew Channel)
         run: npm run build:site
         env:
           SITE_CNAME: ${{ vars.SITE_CNAME }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Релиз
         if: github.ref_type == 'tag'
