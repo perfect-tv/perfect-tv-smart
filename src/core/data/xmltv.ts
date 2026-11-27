@@ -170,6 +170,8 @@ export class XmltvParser {
   private lastLen = -1;
   private lastId = '';
   private lastWanted = false;
+  /** id → первое название передачи, сколько их и были ли разные (заглушка провайдера) */
+  private titles: { [id: string]: { t: string; n: number; varied: boolean } } = {};
   /** Начатый элемент, которому не хватило данных: искать конец с этого места */
   private resumeAt = -1;
 
@@ -433,6 +435,26 @@ export class XmltvParser {
 
   private emit(pr: EpgProgramme) {
     this.programmes++;
+    const t = this.titles[pr.channel];
+    if (!t) this.titles[pr.channel] = { t: pr.title, n: 1, varied: false };
+    else {
+      t.n++;
+      if (t.t !== pr.title) t.varied = true;
+    }
     this.onProgramme(pr);
+  }
+
+  /**
+   * id каналов, у которых вся программа — одно название (провайдер отдаёт заглушку:
+   * «Нет программы», «Музыка на канале» каждый час). Для объединения по tvg-id не годятся.
+   * min — сколько передач должно быть, чтобы короткий канал не считался заглушкой.
+   */
+  fakeIds(min = 4): string[] {
+    const out: string[] = [];
+    for (const id in this.titles) {
+      const t = this.titles[id];
+      if (t.n >= min && !t.varied) out.push(id);
+    }
+    return out;
   }
 }

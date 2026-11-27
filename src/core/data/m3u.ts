@@ -14,9 +14,16 @@ export interface RawChannel {
   tvgName: string;
   tvgShift: number;
   catchup: Catchup | null;
+  /** Смещение сервера (минуты) для архива Xtream; нет — часовой пояс телевизора */
+  catchupOffset?: number | null;
   userAgent: string;
   referrer: string;
   headersJson: string;
+  /** Stalker: команда для create_link, портал, MAC и текущий токен */
+  stalkerCmd?: string;
+  stalkerPortal?: string;
+  stalkerMac?: string;
+  stalkerToken?: string;
 }
 
 interface Pending { name: string; attrs: { [k: string]: string }; options: { [k: string]: string }; headersJson: string | null }

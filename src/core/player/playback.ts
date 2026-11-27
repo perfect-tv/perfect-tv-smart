@@ -1,4 +1,5 @@
 import { platform } from '../platform';
+import { Prefs } from '../prefs';
 import { hevcSupport } from './hlsmode';
 
 /**
@@ -230,15 +231,16 @@ export class Playback {
 
   private startHls(url: string, fromStart: boolean) {
     const self = this;
+    const buf = Prefs.bufferSec;
     const hls = new Hls({
       enableWorker: true,
       lowLatencyMode: false,
       // архив: с начала окна; эфир — у края (по умолчанию)
       startPosition: fromStart ? 0 : -1,
-      maxBufferLength: 20,
-      maxMaxBufferLength: 40,
-      backBufferLength: 30,
-      maxBufferSize: 40 * 1000 * 1000,
+      maxBufferLength: buf,
+      maxMaxBufferLength: buf,
+      backBufferLength: Math.min(30, buf),
+      maxBufferSize: Math.max(8, buf * 4) * 1000 * 1000,
       manifestLoadingMaxRetry: 2,
       levelLoadingMaxRetry: 4,
       fragLoadingMaxRetry: 5,

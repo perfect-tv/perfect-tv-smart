@@ -1,15 +1,15 @@
 # Perfect TV — IPTV-плеер для смарт-ТВ: LG webOS, Samsung Tizen, браузер
 
-Плеер для телевизоров LG (webOS 3.0 и новее): эфир, архив (catchup, в том числе Flussonic), ТВ-гид сеткой и списком, «Программа и архив», избранное, скрытие, блокировка по PIN, напоминания, поиск, русский и английский интерфейс. Пакет `top.rootu.perfecttv`.
+Плеер для телевизоров LG (webOS 3.0 и новее): эфир, архив (catchup, в том числе Flussonic), ТВ-гид сеткой и списком, «Программа и архив», избранное, скрытие, блокировка по PIN, напоминания, поиск, переименование каналов, свой номер и порядок, объединение версий канала (SD/HD/FHD/4K, в том числе по `tvg-id`) с выбором потока, ручная привязка к программе, русский и английский интерфейс. Источники — M3U/M3U8, Xtream Codes (live, программа, архив) и Stalker/MAG (live, портал + MAC). Пакет `top.rootu.perfecttv`.
 
-- Плейлист (M3U/M3U8) загружается потоком; программа (XMLTV, `.gz`, `.zip`) загружается и разбирается в Node-сервисе, а все данные хранятся в SQLite3 через WebSocket (без записи EPG в браузерную IndexedDB).
+- Плейлист (M3U/M3U8) загружается потоком; Xtream Codes — через `player_api.php`, его программа — `xmltv.php`; Stalker/MAG — JSON API портала (handshake, get_profile, get_all_channels, create_link). Программа (XMLTV, `.gz`, `.zip`) загружается и разбирается в Node-сервисе, а все данные хранятся в SQLite3 через WebSocket (без записи EPG в браузерную IndexedDB).
 - Видео: по умолчанию встроенный HLS-плеер для эфира и hls.js (MSE) для архива; режим можно изменить в настройках.
 - В пакете — JS-сервис с локальным прокси; если webOS запрещает слушающий HTTP-порт,
   плейлисты M3U можно загрузить через Node-сервис по шине Luna бинарными порциями.
   Для загрузки EPG с версии 1.0.8 нужен активный WebSocket SQLite на порту 47380;
   для видеопотоков с особыми заголовками всё ещё нужен HTTP-прокси.
 
-Документы: [docs/TZ.md](docs/TZ.md) — ТЗ и решения по платформе, [docs/controls.md](docs/controls.md) — управление, [docs/design.md](docs/design.md) — оформление, [docs/PLAN.md](docs/PLAN.md) — план и что проверено.
+Документы: [docs/TZ.md](docs/TZ.md) — ТЗ и решения по платформе, [docs/controls.md](docs/controls.md) — управление, [docs/design.md](docs/design.md) — оформление, [docs/PLAN.md](docs/PLAN.md) — план и что проверено, [docs/COMPETITORS.md](docs/COMPETITORS.md) — обзор конкурентов и чего не хватает.
 
 ## Лицензия и участие
 
@@ -169,9 +169,9 @@ src/core/              общее для всех ТВ; о платформе з
   app.ts               запуск: платформа → настройки → интерфейс; клавиши, колесо, курсор Magic Remote
   *.ts                 Clock, Net (fetch-поток, Range; прокси — у платформы), Prefs, Storage2 (кэш
                        настроек поверх PlatformApi.kv), lang (строки), log, about, polyfills (Chromium 38)
-  data/                m3u, xmltv (общий с сервисом), compact, catchup, matcher, db (схема и
-                       RecordDb), idb (IndexedDB), loaders (разбор в браузере), epgworker (клиент
-                       воркера), repo, catalog, userdata
+  data/                m3u, xtream (Xtream Codes), stalker (Stalker/MAG), xmltv (общий с сервисом), compact, catchup,
+                       matcher, db (схема и RecordDb), idb (IndexedDB), loaders (разбор в браузере),
+                       epgworker (клиент воркера), repo, catalog, userdata
   worker/epg.ts        воркер программы: сеть, распаковка, разбор (отдельный бандл, встроен в app.js)
   player/              hls.js и встроенный плеер: окно, PROGRAM-DATE-TIME, дорожки
   ui/                  tv (оркестратор), keys, layer, info (инфопанель), guide (Canvas/DOM), schedule,

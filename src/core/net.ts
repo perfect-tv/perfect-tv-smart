@@ -141,20 +141,22 @@ export const Net = {
     return p.stream(url, opts, onChunk);
   },
 
-  /** Небольшой текст целиком */
-  text(url: string, headers?: { [k: string]: string }): Promise<string> {
-    const via = Net.wantProxy(headers);
-    const go = function (p: boolean) {
-      return xhr('GET', p ? Net.proxyUrl(url, headers) : url, { headers: p ? {} : headers }).then(function (x) {
-        if (x.status >= 400 || x.status === 0) throw new NetError(x.status ? 'http_' + x.status : 'network', x.status);
-        Clock.syncWith(x.getResponseHeader('Date'));
-        return x.responseText;
-      });
-    };
-    return go(via).then(null, function (e) {
-      if (!via && Net.proxyAvailable && Prefs.proxyMode !== 2 && e instanceof NetError && e.code === 'network') return go(true);
-      throw e;
+  /**
+    * Текст целиком. Читается тем же `Net.stream`, что M3U/XMLTV: прямой запрос, при CORS —
+    * прокси платформы (на webOS — HTTP или Luna, даже если порт запрещён). Нужен Xtream API.
+    */
+  text(url: string, headers?: { [k: string]: string }, timeout = 30000): Promise<string> {
+    let out = '';
+    let dec: TextDecoder | null = null;
+    const p = Net.stream(url, { headers: headers }, function (b: Uint8Array) {
+      if (!dec) dec = new TextDecoder('utf-8');
+      out += dec.decode(b, { stream: true });
+    }).then(function (r) {
+      if (dec) out += dec.decode();
+      return r.status === 304 ? '' : out;
     });
+    // общий предел на весь ответ; отмена внутри stream не нужна — таймаут уже фатален
+    return within(p, timeout || 30000);
   },
 };
 

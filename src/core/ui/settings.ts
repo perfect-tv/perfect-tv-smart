@@ -6,7 +6,9 @@ import { Prefs } from '../prefs';
 import { Storage2 } from '../storage';
 import { Db, lowerBound } from '../data/db';
 import { SourceMeta, SRC_ERROR, SRC_LOADING, SRC_READY } from '../data/loaders';
-import { EPG_BOTH, EPG_PLAYLIST, EPG_USER_ONLY, Playlist } from '../data/models';
+import { EPG_BOTH, EPG_PLAYLIST, EPG_USER_ONLY, isStalker, isXtream, Playlist, SOURCE_M3U, SOURCE_STALKER, SOURCE_XTREAM } from '../data/models';
+import { normalizeStalkerMac, normalizeStalkerPortal } from '../data/stalker';
+import { normalizeXtreamAccount } from '../data/xtream';
 import { Reminders } from '../data/reminders';
 import { UserData } from '../data/userdata';
 import { Anim, el, setText, toggle } from './dom';
@@ -14,7 +16,7 @@ import { Fmt } from './fmt';
 import { Layer } from './layer';
 import { Logos } from './logos';
 import { PinLayer } from './pin';
-import { FormLayer, MessageLayer, Scroller } from './popups';
+import { FormLayer, ListLayer, MessageLayer, Scroller } from './popups';
 import { QrPlaylistLayer } from './qrplaylist';
 import { LicensesLayer, QrLinkLayer } from './about';
 import { About } from '../about';
@@ -240,9 +242,11 @@ export class SettingsLayer implements Layer {
     const list = this.tv.repo.playlists();
     list.forEach(function (p) {
       const status = p.error ? str('error_2') + self.tv.errorText(p.error) : p.channelsCount > 0 ? plural('channels', p.channelsCount) : str('not_loaded');
-      out.push({ name: p.name, value: function () { return p.id === Prefs.lastPlaylist ? '●' : ''; }, desc: p.url + ' · ' + status, action: function () { self.push(self.playlistPage(p)); } });
+      const what = isXtream(p) ? str('source_xtream') + (p.username ? ' · ' + p.username : '') + (p.url ? ' · ' + p.url : '')
+        : isStalker(p) ? str('source_stalker') + (p.username ? ' · ' + p.username : '') + (p.url ? ' · ' + p.url : '') : p.url;
+      out.push({ name: p.name, value: function () { return p.id === Prefs.lastPlaylist ? '●' : ''; }, desc: what + ' · ' + status, action: function () { self.push(self.playlistPage(p)); } });
     });
-    out.push({ name: str('plus_add_playlist'), action: function () { self.editPlaylist(null); } });
+    out.push({ name: str('plus_add_playlist'), action: function () { self.addSource(); } });
     if (platform().qr) out.push({ name: str('playlist_qr_action'), desc: str('playlist_qr_action_desc'), action: function () { self.addPlaylistByQr(); } });
     return out;
   }
@@ -253,13 +257,33 @@ export class SettingsLayer implements Layer {
     return {
       title: p.name, form: true, items: function () {
         const modes = [str('epg_from_playlist'), str('epg_playlist_and_own'), str('epg_own_only')];
+        const xc = isXtream(p), st = isStalker(p);
+        const what = xc ? str('source_xtream') + (p.username ? ' · ' + p.username : '') + ' · ' + p.url
+          : st ? str('source_stalker') + (p.username ? ' · ' + p.username : '') + ' · ' + p.url : p.url;
         const out: SItem[] = [
-          { name: str('name_and_address'), desc: p.url, action: function () { self.editPlaylist(p); } },
+          { name: str('name_and_address'), desc: what, action: function () { self.editPlaylist(p); } },
           { name: str('programme_epg'), values: modes, index: function () { return p.epgMode === EPG_BOTH ? 1 : p.epgMode === EPG_USER_ONLY ? 2 : 0; }, pick: function (i) { p.epgMode = i === 1 ? EPG_BOTH : i === 2 ? EPG_USER_ONLY : EPG_PLAYLIST; repo.savePlaylist(p); } },
-          { name: str('from_the_playlist'), section: true },
         ];
+        if (xc) out.push({
+          name: str('xtream_output'), desc: str('xtream_output_sub'), values: [str('xtream_output_hls'), str('xtream_output_ts')],
+          index: function () { return p.output === 'ts' ? 1 : 0; },
+          pick: function (i) {
+            const next = i === 1 ? 'ts' : 'm3u8';
+            if (p.output === next) return;
+            p.output = next;
+            p.loadedAt = 0;
+            p.channelsCount = 0;
+            p.error = '';
+            repo.savePlaylist(p).then(function () { repo.refresh(p, true); });
+          },
+        });
+        out.push({ name: str('from_the_playlist'), section: true });
         if (!p.headerEpg.length) out.push({ name: str('the_playlist_has_no_programme_source'), note: true });
-        p.headerEpg.forEach(function (u) { out.push({ name: u, desc: self.srcStatus(u), action: function () { repo.refreshEpg(p, true); self.tv.toast.show(str('reloading_programme')); } }); });
+        p.headerEpg.forEach(function (u) {
+          // адрес программы Xtream содержит пароль — на экране не показываем
+          const name = xc && u.indexOf('/xmltv.php') >= 0 ? str('xtream_guide') : u;
+          out.push({ name: name, desc: self.srcStatus(u), action: function () { repo.refreshEpg(p, true); self.tv.toast.show(str('reloading_programme')); } });
+        });
         out.push({ name: str('own_sources'), section: true });
         p.userEpg.forEach(function (u, i) {
           out.push({ name: u, desc: self.srcStatus(u), action: function () { self.editEpg(p, i); } });
@@ -302,7 +326,63 @@ export class SettingsLayer implements Layer {
     tv.push(layer);
   }
 
-  private editPlaylist(p: Playlist | null) {
+  /** Добавить источник: M3U или Xtream (у них разные поля) */
+  private addSource() {
+    const self = this;
+    const tv = this.tv;
+    let layer: ListLayer | null = null;
+    layer = new ListLayer(tv.ui, str('add_source'), [
+      { label: str('source_m3u'), sub: str('source_m3u_sub'), action: function () { tv.remove(layer!); self.editPlaylist(null, SOURCE_M3U); } },
+      { label: str('source_xtream'), sub: str('source_xtream_sub'), action: function () { tv.remove(layer!); self.editPlaylist(null, SOURCE_XTREAM); } },
+      { label: str('source_stalker'), sub: str('source_stalker_sub'), action: function () { tv.remove(layer!); self.editPlaylist(null, SOURCE_STALKER); } },
+    ], function () { tv.remove(layer!); }, { width: 52 });
+    tv.push(layer);
+  }
+
+  private editPlaylist(p: Playlist | null, source = SOURCE_M3U) {
+    if (p ? isXtream(p) : source === SOURCE_XTREAM) this.editXtream(p);
+    else if (p ? isStalker(p) : source === SOURCE_STALKER) this.editStalker(p);
+    else this.editM3u(p);
+  }
+
+  private editStalker(p: Playlist | null) {
+    const self = this;
+    const tv = this.tv;
+    let layer: FormLayer | null = null;
+    layer = new FormLayer(tv.ui, p ? str('source_stalker') : str('add_source'), [
+      { label: str('stalker_portal'), value: p ? p.url : '', type: 'url' },
+      { label: str('stalker_mac'), value: p ? (p.username || '') : '' },
+      { label: str('name'), value: p ? p.name : '' },
+    ], [str('save'), str('cancel')], function (i, v) {
+      if (i === 1) { tv.remove(layer!); return; }
+      const portal = normalizeStalkerPortal(v[0]);
+      const mac = normalizeStalkerMac(v[1]);
+      if (!portal || !/^https?:\/\/[^\/]+/i.test(portal)) { tv.toast.show(str('stalker_portal_invalid')); return; }
+      if (!mac) { tv.toast.show(str('stalker_mac_invalid')); return; }
+      if (Net.blockedHttp(portal)) { tv.toast.show(str('https_only_error')); return; }
+      tv.remove(layer!);
+      self.changed = true;
+      if (p) {
+        const changed = p.url !== portal || normalizeStalkerMac(p.username || '') !== mac;
+        p.url = portal;
+        p.source = SOURCE_STALKER;
+        p.username = mac;
+        p.password = '';
+        p.name = v[2] || p.name;
+        if (changed) { p.loadedAt = 0; p.etag = ''; p.lastModified = ''; p.channelsCount = 0; p.error = ''; p.headerEpg = []; }
+        tv.repo.savePlaylist(p).then(function () { self.refresh(); if (changed) tv.repo.refresh(p, true); });
+      } else {
+        tv.repo.addPlaylist(v[2] || str('source_stalker'), portal, SOURCE_STALKER, mac).then(function (np) {
+          if (!tv.playlist) { self.onClose(false); tv.open(np); return; }
+          self.refresh();
+          tv.repo.refresh(np, true).then(function () { self.refresh(); });
+        });
+      }
+    }, function () { tv.remove(layer!); }, str('stalker_note'));
+    tv.push(layer);
+  }
+
+  private editM3u(p: Playlist | null) {
     const self = this;
     const tv = this.tv;
     let layer: FormLayer | null = null;
@@ -318,8 +398,11 @@ export class SettingsLayer implements Layer {
       if (p) {
         const urlChanged = p.url !== v[0];
         p.url = v[0];
+        p.source = SOURCE_M3U;
+        p.username = '';
+        p.password = '';
         p.name = v[1] || p.name;
-        if (urlChanged) { p.loadedAt = 0; p.etag = ''; p.lastModified = ''; }
+        if (urlChanged) { p.loadedAt = 0; p.etag = ''; p.lastModified = ''; p.headerEpg = []; }
         tv.repo.savePlaylist(p).then(function () { self.refresh(); if (urlChanged) tv.repo.refresh(p, true); });
       } else {
         tv.repo.addPlaylist(v[1] || str('playlist'), v[0]).then(function (np) {
@@ -329,6 +412,46 @@ export class SettingsLayer implements Layer {
         });
       }
     }, function () { tv.remove(layer!); });
+    tv.push(layer);
+  }
+
+  private editXtream(p: Playlist | null) {
+    const self = this;
+    const tv = this.tv;
+    let layer: FormLayer | null = null;
+    layer = new FormLayer(tv.ui, p ? str('source_xtream') : str('add_source'), [
+      { label: str('xtream_server'), value: p ? p.url : '', type: 'url' },
+      { label: str('xtream_username'), value: p ? (p.username || '') : '' },
+      { label: str('xtream_password'), value: p ? (p.password || '') : '', type: 'password' },
+      { label: str('name'), value: p ? p.name : '' },
+    ], [str('save'), str('cancel')], function (i, v) {
+      if (i === 1) { tv.remove(layer!); return; }
+      const acc = normalizeXtreamAccount(v[0]);
+      const user = v[1] || acc.username;
+      const pass = v[2] || acc.password;
+      if (!acc.server) { tv.toast.show(str('xtream_server_invalid')); return; }
+      if (!user || !pass) { tv.toast.show(str('xtream_credentials')); return; }
+      if (Net.blockedHttp(acc.server)) { tv.toast.show(str('https_only_error')); return; }
+      tv.remove(layer!);
+      self.changed = true;
+      if (p) {
+        const changed = p.url !== acc.server || (p.username || '') !== user || (p.password || '') !== pass;
+        p.url = acc.server;
+        p.source = SOURCE_XTREAM;
+        p.username = user;
+        p.password = pass;
+        p.output = p.output === 'ts' ? 'ts' : 'm3u8';
+        p.name = v[3] || p.name;
+        if (changed) { p.loadedAt = 0; p.etag = ''; p.lastModified = ''; p.channelsCount = 0; p.error = ''; p.headerEpg = []; }
+        tv.repo.savePlaylist(p).then(function () { self.refresh(); if (changed) tv.repo.refresh(p, true); });
+      } else {
+        tv.repo.addPlaylist(v[3] || str('source_xtream'), acc.server, SOURCE_XTREAM, user, pass).then(function (np) {
+          if (!tv.playlist) { self.onClose(false); tv.open(np); return; }
+          self.refresh();
+          tv.repo.refresh(np, true).then(function () { self.refresh(); });
+        });
+      }
+    }, function () { tv.remove(layer!); }, str('xtream_note'));
     tv.push(layer);
   }
 
@@ -386,6 +509,7 @@ export class SettingsLayer implements Layer {
       { name: str('default_archive_depth'), desc: str('if_the_playlist_does_not_set_it'), values: days.map(function (d) { return str('x_d', d); }), index: function () { return Math.max(0, days.indexOf(Prefs.archiveDays)); }, pick: function (i) { Prefs.archiveDays = days[i]; } },
       { name: str('up_key_in_the_player'), values: [str('recent_channels'), str('programme_and_archive')], index: function () { return Prefs.upArchive ? 1 : 0; }, pick: function (i) { Prefs.upArchive = i === 1; } },
       { name: str('hls_engine'), desc: str('hls_engine_sub'), values: [str('hls_engine_hlsjs'), str('hls_engine_native'), str('hls_engine_auto')], index: function () { return Prefs.hlsEngine; }, pick: function (i) { Prefs.hlsEngine = i; } },
+      { name: str('buffer_size'), desc: str('buffer_size_sub'), values: [2, 4, 6, 8, 10, 12].map(function (x) { return str('x_s', x); }), index: function () { return Math.max(0, [2, 4, 6, 8, 10, 12].indexOf(Prefs.bufferSec)); }, pick: function (i) { Prefs.bufferSec = [2, 4, 6, 8, 10, 12][i]; } },
       { name: str('remind_about_a_programme'), values: rem.map(function (m) { return m === 0 ? str('when_it_starts') : str('x_min_before', m); }), index: function () { return Math.max(0, rem.indexOf(Prefs.remindBefore)); }, pick: function (i) { Prefs.remindBefore = rem[i]; } },
       { name: str('start_with_the_last_channel'), desc: str('off_the_guide_opens_on_start'), values: [str('off'), str('on')], index: function () { return Prefs.autoplayLast ? 1 : 0; }, pick: function (i) { Prefs.autoplayLast = i === 1; } },
       { name: str('hide_info_panel_after'), values: hide.map(function (s) { return str('x_s', s); }), index: function () { return Math.max(0, hide.indexOf(Prefs.infoHide)); }, pick: function (i) { Prefs.infoHide = hide[i]; } },
@@ -428,6 +552,7 @@ export class SettingsLayer implements Layer {
     const list = this.tv.repo.playlists();
     list.forEach(function (p) { hidden += Object.keys(UserData.hidden(p.id, 'group')).length + Object.keys(UserData.hidden(p.id, 'channel')).length; });
     return [
+      { name: str('group_quality'), desc: str('group_quality_sub'), values: [str('off'), str('on')], index: function () { return Prefs.groupQuality ? 1 : 0; }, pick: function (i) { Prefs.groupQuality = i === 1; self.tv.reloadCatalog(true); } },
       { name: str('adaptive_sorting'), desc: str('frequently_watched_channels_go_up'), values: [str('off'), str('on')], index: function () { return Prefs.adaptiveSort ? 1 : 0; }, pick: function (i) { Prefs.adaptiveSort = i === 1; } },
       { name: str('reset_sorting_scores'), desc: str('all_playlists_order_by_numbers_again'), action: function () { list.forEach(function (p) { UserData.saveScores(p.id, {}); }); self.tv.toast.show(str('scores_reset')); } },
       { name: str('hidden_categories_and_channels'), desc: str('all_playlists_ok_restore'), value: function () { return hidden > 0 ? String(hidden) : str('none'); }, action: function () { self.push(self.hiddenPage()); } },
@@ -572,7 +697,12 @@ export class SettingsLayer implements Layer {
     this.tv.repo.loadPlaylists().then(function (list) {
       const data = {
         v: 1, at: Clock.now(), prefs: Prefs.all(), user: UserData.dump(), reminders: Reminders.dump(),
-        playlists: list.map(function (p) { return { id: p.id, name: p.name, url: p.url, epgMode: p.epgMode, userEpg: p.userEpg, sort: p.sort }; }),
+        playlists: list.map(function (p) {
+          return {
+            id: p.id, name: p.name, url: p.url, source: p.source || 0, username: p.username || '', password: p.password || '',
+            output: p.output || 'm3u8', epgMode: p.epgMode, userEpg: p.userEpg, sort: p.sort,
+          };
+        }),
       };
       Storage2.setJson('backup', data);
       Storage2.flush().then(function () { self.tv.toast.show(str('backup_saved_webos')); }, function (e) { console.error('backup save', e); self.tv.toast.show(str('storage_error')); });
@@ -587,7 +717,11 @@ export class SettingsLayer implements Layer {
     UserData.restore(data.user || {});
     Reminders.restore(data.reminders || []);
     const ps: Playlist[] = (data.playlists || []).map(function (p: any) {
-      return { id: p.id, name: p.name, url: p.url, epgMode: p.epgMode || 0, userEpg: p.userEpg || [], headerEpg: [], loadedAt: 0, channelsCount: 0, error: '', sort: p.sort || 0 };
+      return {
+        id: p.id, name: p.name, url: p.url, source: p.source || 0, username: p.username || '', password: p.password || '',
+        output: p.output === 'ts' ? 'ts' : 'm3u8', epgMode: p.epgMode || 0, userEpg: p.userEpg || [], headerEpg: [],
+        loadedAt: 0, channelsCount: 0, error: '', sort: p.sort || 0,
+      };
     });
     Db.deleteRange('playlists', lowerBound(0)).then(function () { return Db.putAll('playlists', ps); }).then(function () {
       return Storage2.flush();

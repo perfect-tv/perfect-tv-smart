@@ -53,7 +53,7 @@ if (!Uint8Array.prototype.slice) {
 var parserLib = require('./epg-parser.js');
 
 function emptyMeta(url) {
-  return { url: url, loadedAt: 0, loadId: 0, etag: '', lastModified: '', error: '', count: 0, status: 0 };
+  return { url: url, loadedAt: 0, loadId: 0, etag: '', lastModified: '', error: '', count: 0, status: 0, fakeIds: [] };
 }
 function now() { return Math.floor(Date.now() / 1000); }
 function get(store, key, cb) {
@@ -101,7 +101,9 @@ function matching(channels, wanted, url) {
   for (i = 0; i < wanted.length; i++) {
     var map = {}, list = wanted[i].channels || [];
     for (j = 0; j < list.length; j++) {
-      c = list[j]; match = matcher.match(c.tvgId || '', c.tvgName || '', c.name || '');
+      c = list[j];
+      if (c.epgId) { map[c.key] = [c.epgId, icons[c.epgId] || '']; selected[c.epgId] = true; continue; }
+      match = matcher.match(c.tvgId || '', c.tvgName || '', c.name || '');
       if (match !== null) { map[c.key] = [match, icons[match] || '']; selected[match] = true; }
     }
     result.push({ pid: wanted[i].pid, s: url, m: map });
@@ -296,10 +298,11 @@ function execute(job, q) {
         if (done || stopping) return;
         job.phase = 'saving';
         try { parser.end(); } catch (ex) { return failed(ex); }
+        meta.fakeIds = parser.fakeIds ? parser.fakeIds() : [];
         batch(true, function (dbErr) {
           if (dbErr) return failed(dbErr);
           done = true; job.programmes = total;
-          console.log('EPG service complete', url, total, 'programmes', channels.length, 'channels');
+          console.log('EPG service complete', url, total, 'programmes', channels.length, 'channels', (meta.fakeIds || []).length, 'fake ids');
           finish(job, meta, null);
         });
       }

@@ -17,6 +17,8 @@ const R_SIGNS = /([!\s.,()–-]+|ⓢ|ⓖ|ⓥ|ⓞ|Ⓢ|Ⓖ|Ⓥ|Ⓞ)/g;
 const R_KANAL = /\s(канал|тв)(\s.+|\s*)$/;
 const R_ORIG = /\s(50|orig|original)$/;
 const R_NUM = /\s(\d+)/g;
+/** Качество в конце имени: «Первый HD», «Первый (FHD)», «Первый 1080p». */
+const R_QUALITY = /(?:[\s._-]*[\[(]?(?:SD|HD|FHD|UHD|4K|8K|HEVC|HDR(?:10)?|H\.?265|H\.?264|AVC|FULL[\s._-]*HD|1080[PI]|720[PI]|576[PI]|480[PI]|2160[PI]|4320[PI]|ORIG|ORIGINAL|ORG)[\])]?)\s*$/i;
 /** Буква или цифра (латиница, кириллица, греческий, расширенная латиница) */
 const LETTER = /[0-9A-Za-zÀ-ɏͰ-ϿЀ-ӿ]/;
 const DIGIT = /[0-9]/;
@@ -45,6 +47,43 @@ export const Names = {
   },
 
   matchKey(name: string): string { return Names.translit(Names.short(name)); },
+
+  /** Имя для сравнения версий: без качества и хвоста «канал/тв», но с пробелами между словами */
+  groupCompare(name: string): string {
+    return Names.short(Names.qualityBase(name)).replace(/\s+/g, ' ').trim();
+  },
+
+  /**
+   * Ключ объединения версий канала: без качества и хвоста «канал/тв», без знаков.
+   * «Матч! ТВ», «Матч! ТВ HD» и «Матч! HD orig» дают один ключ; «Кино 2» и «Кино 3» — разные.
+   */
+  groupBase(name: string): string { return Names.key(Names.groupCompare(name)); },
+
+  /**
+   * Одно имя — часть другого по границе слова: «NHL» и «NHL Network», «Action IL» и «YES Action IL».
+   * «Кино 2» и «Кино 20», «Musicbox 80s» и «Musicbox 90s» — не считаются (цифра/слово в продолжении).
+   */
+  related(a: string, b: string): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    const s = a.length <= b.length ? a : b;
+    const l = a.length <= b.length ? b : a;
+    if (l.length === s.length) return false;
+    if (l.indexOf(s) === 0) return l.charAt(s.length) === ' ';
+    const at = l.length - s.length;
+    return l.lastIndexOf(s) === at && l.charAt(at - 1) === ' ';
+  },
+
+  /** Имя без обозначения качества в конце — для объединения SD/HD/FHD/4K */
+  qualityBase(name: string): string {
+    let s = name.trim();
+    for (let guard = 0; guard < 4; guard++) {
+      const n = s.replace(R_QUALITY, '').trim();
+      if (n === s) break;
+      s = n;
+    }
+    return s;
+  },
 
   /**
    * Монограмма для плашки без логотипа: до трёх знаков. Одно слово — целиком, если не длиннее

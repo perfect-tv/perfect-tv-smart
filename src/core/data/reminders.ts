@@ -62,6 +62,19 @@ export const Reminders = {
     changed();
   },
 
+  /** Канал переименован или получил свой номер — обновить напоминания */
+  rename(chKey: string, name: string, num: number) {
+    let any = false;
+    const l = load();
+    for (let i = 0; i < l.length; i++) {
+      if (l[i].chKey !== chKey) continue;
+      l[i].chName = name;
+      l[i].chNum = num;
+      any = true;
+    }
+    if (any) changed();
+  },
+
   remove(id: string) {
     list = load().filter(function (r) { return r.id !== id; });
     delete shown[id];

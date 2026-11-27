@@ -56,6 +56,18 @@ describe('XMLTV', () => {
     }
   });
 
+  it('заглушка программы: одно название на все передачи', () => {
+    const x = `<tv><channel id="fake"><display-name>Fake</display-name></channel>
+<channel id="short"><display-name>Short</display-name></channel>
+<channel id="real"><display-name>Real</display-name></channel>` +
+      [0, 1, 2, 3, 4].map(function (i) { return `<programme start="202311141${10 + i}0000 +0000" stop="202311141${11 + i}0000 +0000" channel="fake"><title>Музыка на канале</title></programme>`; }).join('') +
+      [0, 1, 2].map(function (i) { return `<programme start="202311141${10 + i}0000 +0000" stop="202311141${11 + i}0000 +0000" channel="short"><title>Нет программы</title></programme>`; }).join('') +
+      ['Новости', 'Кино', 'Спорт', 'Погода'].map(function (t, i) { return `<programme start="202311141${10 + i}0000 +0000" stop="202311141${11 + i}0000 +0000" channel="real"><title>${t}</title></programme>`; }).join('') +
+      '</tv>';
+    const [p] = run(enc(x), ['fake', 'short', 'real']);
+    expect(p.fakeIds()).toEqual(['fake']);
+  });
+
   it('gzip', () => {
     const [, , pr] = run(gzipSync(enc(xml)), ['1tv'], 64);
     expect(pr.length).toBe(3);

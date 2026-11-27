@@ -5,10 +5,12 @@ import { platform } from '../platform';
 import { Prefs } from '../prefs';
 import { Bus } from '../data/bus';
 import { ALL_KEY, Catalog, FAV_KEY } from '../data/catalog';
-import { CatchupUrl } from '../data/catchup';
-import { Channel, Playlist } from '../data/models';
+import { CatchupUrl, localTz } from '../data/catchup';
+import { Channel, Playlist, SOURCE_STALKER, SOURCE_XTREAM } from '../data/models';
 import { inArchive, isMissed, Reminder, Reminders } from '../data/reminders';
 import { Repo } from '../data/repo';
+import { normalizeStalkerMac, normalizeStalkerPortal, resolveStalkerLink } from '../data/stalker';
+import { normalizeXtreamAccount } from '../data/xtream';
 import { isHlsUrl, Playback } from '../player/playback';
 import { headersForNative, useNativeHls } from '../player/hlsmode';
 import { Cell } from './cells';
@@ -41,9 +43,11 @@ const SEEK_START = 30;
 const SEEK_GROW = 120;
 const SEEK_MAX = 600;
 const SEEK_GAP = 700;
-const RETRY = [2000, 5000, 10000];
+const RETRY = [2000, 5000, 10000, 15000, 30000, 60000];
 const SLEEP_STEPS = [15, 30, 45, 60, 90, 120];
 const AUTO_REFRESH = 15 * 60;
+/** Временная ссылка Stalker живёт недолго — через 10 минут берём новую */
+const STALKER_LINK_TTL = 10 * 60;
 
 interface Seek { target: number; dir: number; last: number; released: boolean; holdStart: number; holdTick: number; holding: boolean }
 
@@ -78,7 +82,16 @@ export class Tv {
   private pauseInfo: number | null = null;
   private retry = 0;
   private retryTimer = 0;
+  /** Буферизация началась: с какого времени и когда последний раз перезапускали поток */
+  private stallAt = 0;
+  private stallRetryAt = 0;
+  /** Поток уже играл: сторож не трогает долгий первый старт */
+  private playedOnce = false;
   private lastUrl = '';
+  /** Номер попытки получить ссылку Stalker: старый ответ не должен перебить новый канал */
+  private stalkerRev = 0;
+  /** Временная ссылка Stalker уже перезапрашивалась после ошибки этого канала */
+  private stalkerRetried = false;
   private forceHls = false;
   private viaProxy = false;
   private nativeFallback = false;
@@ -115,7 +128,13 @@ export class Tv {
     this.playback = new Playback(video, {
       onState: function (playing, buffering) {
         self.buffering.set(buffering && !self.state.error);
-        if (playing) { self.retry = 0; if (self.state.error) { self.state.error = false; self.updateInfo(); } }
+        if (buffering && !self.state.error) { if (!self.stallAt) self.stallAt = Date.now(); }
+        else self.stallAt = 0;
+        if (playing) {
+          self.playedOnce = true;
+          self.retry = 0;
+          if (self.state.error) { self.state.error = false; self.updateInfo(); }
+        }
       },
       onReady: function () { self.onReady(); },
       onEnded: function () { self.onStreamEnded(); },
@@ -140,6 +159,7 @@ export class Tv {
     this.keys = new Keys(function () { return self.top(); });
     Logos.setOnLoad(function () { self.guide.redraw(); });
     Bus.on('epg', function () { self.guide.redraw(); if (!self.pending) self.updateInfo(); });
+    Bus.on('epgmeta', function () { if (self.playlist && self.catalog) self.reloadCatalog(); });
     Bus.on('progress', function () { self.guide.redraw(); });
     Bus.on('channels', function (pid: number) { self.onChannelsChanged(pid); });
     Reminders.onDue = function (r) { self.notifyReminder(r); };
@@ -242,8 +262,18 @@ export class Tv {
     // страница по HTTPS без прокси, плейлист по http:// — браузер не пускает (смешанное содержимое)
     if (code === 'network' && this.playlist && Net.blockedHttp(this.playlist.url)) return str('https_only_error');
     if (code === 'network') return str('no_connection_to_the_server');
-    if (code === 'format') return str('the_file_does_not_look_like_an_m3u');
+    if (code === 'format') {
+      const src = this.playlist ? (this.playlist.source || 0) : -1;
+      return src === SOURCE_XTREAM ? str('xtream_bad_response') : src === SOURCE_STALKER ? str('stalker_bad_response') : str('the_file_does_not_look_like_an_m3u');
+    }
     if (code === 'empty') return str('the_playlist_has_no_channels');
+    if (code === 'xtream_auth') return str('xtream_auth');
+    if (code === 'xtream_bad_response') return str('xtream_bad_response');
+    if (code === 'stalker_mac') return str('stalker_mac_invalid');
+    if (code === 'stalker_auth') return str('stalker_auth');
+    if (code === 'stalker_login') return str('stalker_login');
+    if (code === 'stalker_bad_response') return str('stalker_bad_response');
+    if (code === 'stalker_empty') return str('stalker_empty');
     if (code === 'need_service') return str(platform().labels.needProxy);
     if (code === 'storage') return str('storage_error');
     if (code === 'timeout') return str('timeout_error');
@@ -289,13 +319,19 @@ export class Tv {
     const cur = languages().filter(function (l) { return l.code === lang(); })[0];
     // «С телефона» — только где у платформы есть приём плейлиста по QR
     const hasQr = !!platform().qr;
-    const buttons = hasQr ? [str('add'), str('playlist_from_phone'), str('settings')] : [str('add'), str('settings')];
+    const buttons = [str('add')];
+    const ixXtream = buttons.push(str('source_xtream')) - 1;
+    const ixStalker = buttons.push(str('source_stalker')) - 1;
+    const ixQr = hasQr ? buttons.push(str('playlist_from_phone')) - 1 : -1;
+    const ixSettings = buttons.push(str('settings')) - 1;
     layer = new FormLayer(this.ui, str('add_playlist'), [
       { label: str('playlist_address'), value: values ? values[0] : '', type: 'url' },
       { label: str('name'), value: values ? values[1] : '' },
     ], buttons, function (i, v) {
-      if (i === buttons.length - 1) { self.remove(layer!); self.openSettings(); return; }
-      if (hasQr && i === 1) { self.wizardQr(function () { self.remove(layer!); }); return; }
+      if (i === ixSettings) { self.remove(layer!); self.openSettings(); return; }
+      if (i === ixQr) { self.wizardQr(function () { self.remove(layer!); }); return; }
+      if (i === ixXtream) { self.wizardXtream(function () { self.remove(layer!); }); return; }
+      if (i === ixStalker) { self.wizardStalker(function () { self.remove(layer!); }); return; }
       if (!v[0]) { self.toast.show(str('enter_the_address')); return; }
       if (Net.blockedHttp(v[0])) { self.toast.show(str('https_only_error')); return; }
       self.remove(layer!);
@@ -305,6 +341,56 @@ export class Tv {
       button: cur ? cur.name : lang(),
       action: function () { self.chooseLanguage(function () { const v = layer!.values(); self.remove(layer!); self.wizard(v, true); }); },
     }, focusLanguage);
+    this.push(layer);
+  }
+
+  /** Xtream из окна первого запуска: сервер, логин, пароль — добавить и открыть */
+  private wizardXtream(closeWizard: () => void) {
+    const self = this;
+    let layer: FormLayer | null = null;
+    layer = new FormLayer(this.ui, str('source_xtream'), [
+      { label: str('xtream_server'), value: '', type: 'url' },
+      { label: str('xtream_username'), value: '' },
+      { label: str('xtream_password'), value: '', type: 'password' },
+      { label: str('name'), value: '' },
+    ], [str('add'), str('cancel')], function (i, v) {
+      if (i === 1) { self.remove(layer!); return; }
+      const acc = normalizeXtreamAccount(v[0]);
+      const user = v[1] || acc.username;
+      const pass = v[2] || acc.password;
+      if (!acc.server) { self.toast.show(str('xtream_server_invalid')); return; }
+      if (!user || !pass) { self.toast.show(str('xtream_credentials')); return; }
+      if (Net.blockedHttp(acc.server)) { self.toast.show(str('https_only_error')); return; }
+      self.remove(layer!);
+      closeWizard();
+      self.repo.addPlaylist(v[3] || str('source_xtream'), acc.server, SOURCE_XTREAM, user, pass).then(function (p) {
+        self.open(p);
+      }, function () { self.toast.show(str('playlist_qr_save_error')); self.wizard(); });
+    }, function () { self.remove(layer!); }, str('xtream_note'));
+    this.push(layer);
+  }
+
+  /** Stalker/MAG из окна первого запуска: портал и MAC — добавить и открыть */
+  private wizardStalker(closeWizard: () => void) {
+    const self = this;
+    let layer: FormLayer | null = null;
+    layer = new FormLayer(this.ui, str('source_stalker'), [
+      { label: str('stalker_portal'), value: '', type: 'url' },
+      { label: str('stalker_mac'), value: '' },
+      { label: str('name'), value: '' },
+    ], [str('add'), str('cancel')], function (i, v) {
+      if (i === 1) { self.remove(layer!); return; }
+      const portal = normalizeStalkerPortal(v[0]);
+      const mac = normalizeStalkerMac(v[1]);
+      if (!portal || !/^https?:\/\/[^\/]+/i.test(portal)) { self.toast.show(str('stalker_portal_invalid')); return; }
+      if (!mac) { self.toast.show(str('stalker_mac_invalid')); return; }
+      if (Net.blockedHttp(portal)) { self.toast.show(str('https_only_error')); return; }
+      self.remove(layer!);
+      closeWizard();
+      self.repo.addPlaylist(v[2] || str('source_stalker'), portal, SOURCE_STALKER, mac).then(function (p) {
+        self.open(p);
+      }, function () { self.toast.show(str('playlist_qr_save_error')); self.wizard(); });
+    }, function () { self.remove(layer!); }, str('stalker_note'));
     this.push(layer);
   }
 
@@ -384,7 +470,7 @@ export class Tv {
       key: function (name: string, long: boolean, digit: number) {
         if (name === 'digit') { self.digit(digit); return; }
         if (!self.state.channel && !self.pending) { self.openGuide(); return; }
-        const seekable = self.state.archive !== null && !!self.state.channel && self.state.channel.hasArchive;
+        const seekable = self.state.archive !== null && !!self.state.channel && self.state.channel.active().hasArchive;
         if (name === 'left') { if (seekable) self.seekStep(-1); else self.switchRelative(-1); }
         else if (name === 'right') { if (seekable) self.seekStep(1); else self.switchRelative(1); }
         else if (name === 'pgup') self.switchRelative(1);
@@ -487,6 +573,7 @@ export class Tv {
    */
   playChannel(ch: Channel, groupKey: string | null = null, archive: number | null = null, programEnd = 0, reload = false, unlocked = false) {
     const self = this;
+    const rev = ++this.stalkerRev;
     const cat = this.catalog;
     // PIN-состояние (сессия, «PIN действует») относится к играющему плейлисту: при выборе канала
     // из просматриваемого другого плейлиста оно не переносится
@@ -541,10 +628,16 @@ export class Tv {
       this.showInfo();
       return;
     }
+    const src = ch.active();
+    // Stalker: временная ссылка получается у портала отдельным запросом
+    if (src.stalkerCmd && (!src.stalkerLinkAt || Clock.now() - src.stalkerLinkAt > STALKER_LINK_TTL)) {
+      this.stalkerThenPlay(ch, src, groupKey, archive, programEnd, reload, unlocked, rev);
+      return;
+    }
     let url: string;
     let a: Archive | null = null;
-    if (archive !== null && ch.hasArchive) {
-      const tpl = CatchupUrl.template(ch.url, ch.catchupType || '', ch.catchupSource);
+    if (archive !== null && src.hasArchive) {
+      const tpl = CatchupUrl.template(src.url, src.catchupType || '', src.catchupSource);
       if (tpl === null) { this.toast.show(str('the_channel_has_no_archive')); return; }
       const now = Clock.now();
       const start = archive;
@@ -553,11 +646,13 @@ export class Tv {
       // Flussonic HLS, передача моложе 6 ч: archive-START-now.m3u8 (EVENT, дописывается до «сейчас»);
       // «?event=true» балансировщики провайдеров отбрасывают. hls.js начинает с начала окна (startPosition 0),
       // onReady проверяет по PROGRAM-DATE-TIME.
-      const ready = CatchupUrl.flussonicHls(ch.catchupType || '', tpl) && now - start < 6 * 3600 ? CatchupUrl.flussonicNow(tpl) : tpl;
-      url = CatchupUrl.prepare(ready, start, dur, now);
+      const ready = CatchupUrl.flussonicHls(src.catchupType || '', tpl) && now - start < 6 * 3600 ? CatchupUrl.flussonicNow(tpl) : tpl;
+      // Xtream: время в адресе архива — местное время сервера, а не телевизора
+      const tz = src.catchupOffset === null ? localTz : function () { return src.catchupOffset as number; };
+      url = CatchupUrl.prepare(ready, start, dur, now, tz);
       a = { start: start, base: null, timeshift: false, continued: false, pdt: false };
-      console.log('archive', ch.name, url);
-    } else url = CatchupUrl.prepare(ch.url, null, 0, Clock.now());
+      console.log('archive', ch.name, src.name, url);
+    } else url = CatchupUrl.prepare(src.url, null, 0, Clock.now());
 
     if (this.state.channel !== ch) {
       if (cat) cat.addHistory(ch);
@@ -566,6 +661,7 @@ export class Tv {
       this.nativeFallback = Prefs.playFix(ch.key) === 1;
       this.autoHlsFallback = false;
       this.viaProxy = false;
+      this.stalkerRetried = false;
     }
     this.state.channel = ch;
     this.state.groupKey = gk;
@@ -580,11 +676,34 @@ export class Tv {
     this.showInfo();
   }
 
+  /** Получить у Stalker временную ссылку и запустить канал; старый ответ отбрасывается */
+  private stalkerThenPlay(ch: Channel, src: Channel, groupKey: string | null, archive: number | null,
+    programEnd: number, reload: boolean, unlocked: boolean, rev: number) {
+    const self = this;
+    this.toast.show(str('stalker_link_loading'));
+    resolveStalkerLink(src).then(function (url) {
+      if (rev !== self.stalkerRev) return;
+      src.url = url;
+      src.stalkerLinkAt = Clock.now();
+      self.toast.hide();
+      self.playChannel(ch, groupKey, archive, programEnd, reload, unlocked);
+    }, function (e) {
+      if (rev !== self.stalkerRev) return;
+      console.warn('stalker link', ch.name, e && (e.code || e.message || e));
+      self.toast.show(str('stalker_link_error'));
+      if (!self.hasVideo()) { self.openGuide(); return; }
+      self.updateInfo();
+    });
+  }
+
   /** Запустить lastUrl: через прокси, если нужны заголовки канала или прямой не прошёл (CORS) */
   private startStream() {
     const ch = this.state.channel;
     if (!ch) return;
-    const h = ch.headers();
+    this.stallAt = 0;
+    this.playedOnce = false;
+    const src = ch.active();
+    const h = src.headers();
     let url = this.lastUrl;
     const proxied = this.viaProxy || Net.wantProxy(h);
     if (proxied) url = Net.proxyUrl(url, h);
@@ -597,7 +716,7 @@ export class Tv {
     const native = hn.native || useNativeHls(Prefs.hlsEngine, this.state.archive !== null,
       this.nativeFallback, this.autoHlsFallback);
     this.streamStartedAt = Date.now();
-    console.log('play', ch.name, this.state.archive ? 'archive' : 'live', native ? 'native' : 'hlsjs', url.slice(0, 160));
+    console.log('play', ch.name, src.name !== ch.name ? '[' + src.name + ']' : '', this.state.archive ? 'archive' : 'live', native ? 'native' : 'hlsjs', url.slice(0, 160));
     this.playback.play(url, {
       fromStart: this.state.archive !== null,
       native: native,
@@ -652,8 +771,9 @@ export class Tv {
   }
 
   playArchive(ch: Channel, start0: number, programEnd = 0) {
-    if (!ch.hasArchive) { this.toast.show(str('the_channel_has_no_archive')); return; }
-    const start = Math.max(start0, Clock.now() - ch.archiveDays * 86400);
+    const src = ch.active();
+    if (!src.hasArchive) { this.toast.show(str('the_channel_has_no_archive')); return; }
+    const start = Math.max(start0, Clock.now() - src.archiveDays * 86400);
     const gk = this.state.channel === ch ? this.state.groupKey : null;
     if (start >= Clock.now() - 30) { this.playChannel(ch, gk); return; }
     this.playChannel(ch, gk, start, programEnd);
@@ -722,11 +842,21 @@ export class Tv {
   private onStreamError(kind: 'network' | 'media' | 'live', detail: string) {
     const ch = this.state.channel;
     if (!ch) return;
+    this.stallAt = 0;
     console.warn('play error', kind, detail, ch.name, this.playback.engine);
     // прямой запрос не прошёл (CORS, заголовки) — через прокси
     if (kind === 'network' && !this.viaProxy && Net.proxyAvailable && Prefs.proxyMode !== 2) {
       this.viaProxy = true;
       this.startStream();
+      return;
+    }
+    // Stalker: временная ссылка могла истечь — берём новую один раз
+    const src = ch.active();
+    if (src.stalkerCmd && src.stalkerLinkAt && !this.stalkerRetried) {
+      this.stalkerRetried = true;
+      src.stalkerLinkAt = 0;
+      const a = this.state.archive;
+      this.playChannel(ch, this.state.groupKey, a ? a.start : null, 0, true);
       return;
     }
     // Автоматический режим: если нативный HLS не поддерживает конкретный
@@ -746,6 +876,16 @@ export class Tv {
       this.startStream();
       return;
     }
+    if (this.tryNextAlt(ch)) {
+      if (this.state.archive) {
+        const a = this.state.archive;
+        this.playChannel(ch, this.state.groupKey, a.start, 0, true);
+      } else {
+        this.lastUrl = ch.active().url;
+        this.startStream();
+      }
+      return;
+    }
     if (this.state.archive) {
       const t = Date.now();
       if (t - this.archiveRetry > 15000) { this.archiveRetry = t; this.restorePosition(this.position()); return; }
@@ -762,7 +902,8 @@ export class Tv {
   private restorePosition(pos: number) {
     const ch = this.state.channel;
     if (!ch) return;
-    if (ch.hasArchive && pos < Clock.now() - 30) { this.playArchive(ch, pos); return; }
+    const src = ch.active();
+    if (src.hasArchive && pos < Clock.now() - 30) { this.playArchive(ch, pos); return; }
     if (this.state.archive && this.state.archive.timeshift) { this.state.archive = null; this.updateInfo(); return; }
     this.playChannel(ch, this.state.groupKey, null, 0, true);
   }
@@ -895,7 +1036,8 @@ export class Tv {
       return;
     }
     if (this.top() !== this.playerLayer) return;
-    const maxNum = cat.channels.length ? cat.channels[cat.channels.length - 1].num : 0;
+    let maxNum = 0;
+    for (let i = 0; i < cat.channels.length; i++) if (!cat.channels[i].primary && cat.channels[i].num > maxNum) maxNum = cat.channels[i].num;
     this.numTimer = window.setTimeout(function () { self.applyNumber(); }, parseInt(this.numBuf + '0', 10) > Math.max(maxNum, cat.channels.length) ? 300 : OSD_NUMBER);
   }
 
@@ -921,7 +1063,7 @@ export class Tv {
   private seekStep(dir: number) {
     const ch = this.state.channel;
     if (!ch) return;
-    if (!ch.hasArchive) { this.showInfo(); return; }
+    if (!ch.active().hasArchive) { this.showInfo(); return; }
     const t = Date.now();
     const s = this.seek || { target: this.position(), dir: 0, last: 0, released: true, holdStart: 0, holdTick: 0, holding: false };
     const repeat = s.dir === dir && !s.released && t - s.last < SEEK_GAP;
@@ -957,7 +1099,7 @@ export class Tv {
     const ch = this.state.channel, s = this.seek;
     if (!ch || !s) return;
     const now = Clock.now();
-    s.target = Math.max(now - ch.archiveDays * 86400, Math.min(now, s.target + delta));
+    s.target = Math.max(now - ch.active().archiveDays * 86400, Math.min(now, s.target + delta));
     this.updateInfo();
     this.info.show(Prefs.infoHide);
   }
@@ -1008,7 +1150,7 @@ export class Tv {
       const back = (Clock.now() - s.target) * 1000;
       const end = pb.windowOffsetMs + pb.windowDurationMs;
       const t = end - back - pb.windowOffsetMs;
-      if (t > 0 && ch.archiveDays === 0) {
+      if (t > 0 && ch.active().archiveDays === 0) {
         this.state.archive = { start: s.target, base: end - back, timeshift: true, continued: false, pdt: false };
         pb.seekTo(t);
         this.updateInfo();
@@ -1229,16 +1371,32 @@ export class Tv {
     });
   }
 
-  reloadCatalog() {
+  /**
+   * Пересобрать каталог: смена плейлиста, настройка «Объединять версии качества» (replay —
+   * перезапустить поток, чтобы ссылка и заголовки были от одного источника) или новая программа.
+   */
+  reloadCatalog(replay = false) {
     const p = this.playlist;
     if (!p) return;
     const self = this;
     this.repo.loadCatalog(p).then(function (cat) {
-      const cur = self.state.channel;
+      if (self.playlist !== p) return;
       self.catalog = cat;
-      if (cur) { const c = cat.byKey[cur.key]; if (c) self.state.channel = c; }
+      const cur = self.state.channel;
+      if (cur) {
+        const c = cat.byKey[cur.key];
+        if (c) {
+          self.state.channel = c;
+          if (replay && self.lastUrl) {
+            const a = self.state.archive;
+            self.playChannel(c, self.state.groupKey, a ? a.start : null, 0, true);
+            return;
+          }
+        }
+      }
       if (self.hasLayer(self.guide)) self.guide.reload();
-    });
+      self.updateInfo();
+    }, function (e) { console.warn('reload catalog', e); });
   }
 
   switchPlaylist(p: Playlist) {
@@ -1255,10 +1413,11 @@ export class Tv {
   openDetails(ch: Channel, cell: Cell) {
     const now = Clock.now();
     const buttons: [string, string][] = [];
-    const inArch = ch.hasArchive && cell.start >= now - ch.archiveDays * 86400;
+    const src = ch.active();
+    const inArch = src.hasArchive && cell.start >= now - src.archiveDays * 86400;
     if (cell.end <= now) { if (inArch) buttons.push([str('watch'), 'archive']); }
     else if (cell.start <= now) {
-      if (ch.hasArchive) buttons.push([str('watch_from_start'), 'archive']);
+      if (src.hasArchive) buttons.push([str('watch_from_start'), 'archive']);
       if (this.state.channel === ch && this.state.archive) buttons.push([str('watch_live'), 'live']);
       else if (this.state.channel !== ch) buttons.push([str('watch'), 'live']);
     } else if (cell.program) {
@@ -1377,7 +1536,7 @@ export class Tv {
     const quick: MenuTile[] = [];
     if (fromGuide) quick.push({ icon: 'play', title: str('watch'), run: act('play') });
     if (current && this.state.archive) quick.push({ icon: 'live', title: str('tile_live'), run: act('live') });
-    if (ch.hasArchive && p) quick.push({ icon: 'restart', title: str('tile_restart'), run: act('restart') });
+    if (ch.active().hasArchive && p) quick.push({ icon: 'restart', title: str('tile_restart'), run: act('restart') });
     quick.push({ icon: 'list', title: str('hint_programme'), run: act('archive') });
     quick.push({ icon: 'star', title: str(fav ? 'tile_fav_remove' : 'tile_fav_add'), run: act('fav') });
     quick.push({ icon: 'hist', title: str('hint_recent'), run: act('history') });
@@ -1403,6 +1562,12 @@ export class Tv {
       channel.push({ title: str('move_up'), keep: true, run: act('fav_up') });
       channel.push({ title: str('move_down'), keep: true, run: act('fav_down') });
     }
+    if (ch.alts.length) channel.push({ title: str('channel_stream'), value: ch.active().name, sub: function () { return self.streamsPage(ch); } });
+    channel.push({ title: str('rename_channel'), value: ch.name !== ch.origName ? ch.name : '', run: act('rename') });
+    channel.push({ title: str('channel_number_2'), value: String(ch.num), run: act('renumber') });
+    channel.push({ title: str('channel_programme_source'), value: str(this.repo.manualEpg(ch) ? 'manual' : 'auto'), run: act('epg_map') });
+    channel.push({ title: str('move_up_channel'), run: act('ch_up') });
+    channel.push({ title: str('move_down_channel'), run: act('ch_down') });
     channel.push({ title: str('hide_channel'), run: act('hide') });
     const pinOn = Prefs.pin !== '';
     const chLocked = pinOn && cat.isChannelLocked(ch);
@@ -1504,6 +1669,114 @@ export class Tv {
     this.sleepTimers.push(window.setTimeout(function () { self.sleepAt = 0; self.playback.stop(); platform().exit(); }, next * 60000));
   }
 
+  /** Список потоков качества: основной и дубли */
+  private streamsPage(ch: Channel): MenuPage {
+    const self = this;
+    const list = [ch].concat(ch.alts);
+    return {
+      title: str('channel_stream'), subtitle: ch.name, sections: [{
+        title: '', items: list.map(function (c, i) {
+          return {
+            title: c.name, value: i === ch.altIndex ? '✓' : '',
+            run: function () { self.selectStream(ch, i); },
+          };
+        }),
+      }],
+    };
+  }
+
+  private selectStream(ch: Channel, index: number) {
+    if (ch.altIndex === index) return;
+    ch.altIndex = index;
+    const a = this.state.channel === ch ? this.state.archive : null;
+    const gk = this.state.channel === ch ? this.state.groupKey : this.guide.groupKey();
+    this.playChannel(ch, gk, a ? a.start : null, 0, true);
+    if (this.menu) this.menu.refresh();
+  }
+
+  /** Ручная привязка канала к программе: похожие каналы XMLTV или «автоматически» */
+  private epgMapLayer(ch: Channel) {
+    const self = this;
+    const p = this.repo.playlist(ch.playlistId);
+    if (!p) return;
+    this.toast.show(str('loading'));
+    this.repo.epgCandidates(ch).then(function (list) {
+      const cur = self.repo.manualEpg(ch);
+      const sourceName = function (u: string) {
+        if (u.indexOf('/xmltv.php') >= 0) return str('source_xtream');
+        const m = /^https?:\/\/([^\/]+)/i.exec(u);
+        return m ? m[1] : u;
+      };
+      let layer: ListLayer | null = null;
+      const done = function (auto: boolean, item?: any) {
+        if (auto) self.repo.setEpgMapping(ch, '', '', '');
+        else self.repo.setEpgMapping(ch, item.source, item.id, item.icon);
+        self.remove(layer!);
+        self.guide.reload();
+        self.updateInfo();
+        if (self.menu) self.menu.refresh();
+        self.toast.show(str('epg_mapping_saved'));
+        if (!auto) self.repo.refreshEpg(p, true);
+      };
+      const items: ListItem[] = [{
+        label: str('epg_auto'), sub: str('epg_auto_sub'), value: cur ? '' : '✓',
+        action: function () { done(true); },
+      }];
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i];
+        const same = !!cur && cur[0] === c.source && cur[1] === c.id;
+        items.push({
+          label: c.name, sub: sourceName(c.source), value: same ? '✓' : '',
+          action: (function (v) { return function () { done(false, v); }; })(c),
+        });
+      }
+      layer = new ListLayer(self.ui, str('channel_programme_source'), items, function () { self.remove(layer!); },
+        { subtitle: str('epg_mapping_note'), empty: str('epg_candidates_empty') });
+      self.push(layer);
+    }, function () { self.toast.show(str('epg_candidates_empty')); });
+  }
+
+  /** Своё название канала: пустое — вернуть имя провайдера */
+  private renameChannelLayer(ch: Channel) {
+    const self = this;
+    const cat = this.catalog;
+    if (!cat) return;
+    let layer: FormLayer | null = null;
+    layer = new FormLayer(this.ui, str('rename_channel'), [
+      { label: str('name'), value: ch.name },
+    ], [str('save'), str('cancel')], function (i, v) {
+      if (i === 1) { self.remove(layer!); return; }
+      cat.renameChannel(ch, v[0]);
+      self.remove(layer!);
+      self.guide.reload();
+      self.updateInfo();
+      if (self.menu) self.menu.refresh();
+    }, function () { self.remove(layer!); }, str('rename_channel_note'));
+    this.push(layer);
+  }
+
+  /** Свой номер канала: 0 или пусто — вернуть номер провайдера */
+  private numberChannelLayer(ch: Channel) {
+    const self = this;
+    const cat = this.catalog;
+    if (!cat) return;
+    let layer: FormLayer | null = null;
+    layer = new FormLayer(this.ui, str('channel_number_2'), [
+      { label: str('channel_number_2'), value: String(ch.num) },
+    ], [str('save'), str('cancel')], function (i, v) {
+      if (i === 1) { self.remove(layer!); return; }
+      const text = v[0].trim();
+      const num = text ? parseInt(text, 10) : 0;
+      if (text && (!isFinite(num) || num <= 0)) { self.toast.show(str('channel_number_invalid')); return; }
+      cat.setChannelNumber(ch, num);
+      self.remove(layer!);
+      self.guide.reload();
+      self.updateInfo();
+      if (self.menu) self.menu.refresh();
+    }, function () { self.remove(layer!); }, str('channel_number_note'));
+    this.push(layer);
+  }
+
   private menuAction(ch: Channel, a: string) {
     const cat = this.catalog;
     if (!cat) return;
@@ -1523,6 +1796,11 @@ export class Tv {
       case 'fav': cat.toggleFavorite(ch); this.guide.reload(); break;
       case 'fav_up': cat.moveFavorite(ch, -1); this.guide.reload(); break;
       case 'fav_down': cat.moveFavorite(ch, 1); this.guide.reload(); break;
+      case 'rename': this.renameChannelLayer(ch); break;
+      case 'renumber': this.numberChannelLayer(ch); break;
+      case 'epg_map': this.epgMapLayer(ch); break;
+      case 'ch_up': cat.moveChannel(ch, -1); this.guide.reload(); if (this.menu) this.menu.refresh(); break;
+      case 'ch_down': cat.moveChannel(ch, 1); this.guide.reload(); if (this.menu) this.menu.refresh(); break;
       case 'hide': this.guide.reloadAfterHide(function (c) { return c.key === ch.key; }, null, function () { cat.hideChannel(ch); }); this.toast.show(str('channel_hidden')); break;
       case 'hide_group': this.guide.reloadAfterHide(function (c) { return c.group === ch.group; }, ch.group, function () { cat.hideGroup(ch.group); }); this.toast.show(str('category_hidden')); break;
       case 'hidden': this.openHidden(); break;
@@ -1574,6 +1852,7 @@ export class Tv {
     this.ticks++;
     this.checkArchiveLive();
     this.watchArchive();
+    this.watchStall();
     if (this.info.visible && !this.pending) this.updateInfo();
     if (this.ticks % 30 === 1) Reminders.check();
     if (this.ticks % 60 === 0) this.guide.redraw();
@@ -1583,12 +1862,44 @@ export class Tv {
     }
   }
 
+  /** Следующий дубль качества; false — дублей больше нет */
+  private tryNextAlt(ch: Channel): boolean {
+    if (ch.altIndex >= ch.alts.length) return false;
+    ch.altIndex++;
+    console.warn('play next source', ch.name, ch.active().name);
+    return true;
+  }
+
+  /** Поток завис в буферизации: через 15 с перезапускаем с текущей позиции или берём дубль */
+  private watchStall() {
+    if (!this.playedOnce || !this.state.channel || this.state.error || this.pauseInfo !== null || this.seek || this.playback.paused) { this.stallAt = 0; return; }
+    if (!this.stallAt) return;
+    const now = Date.now();
+    if (now - this.stallAt < 15000 || now - this.stallRetryAt < 15000) return;
+    this.stallRetryAt = now;
+    const ch = this.state.channel;
+    console.warn('play stall 15s, restart', ch.name, this.state.archive ? 'archive' : 'live');
+    if (this.tryNextAlt(ch)) {
+      if (this.state.archive) {
+        const a = this.state.archive;
+        this.playChannel(ch, this.state.groupKey, a.start, 0, true);
+      } else {
+        this.lastUrl = ch.active().url;
+        this.startStream();
+      }
+      return;
+    }
+    if (this.state.archive) this.restorePosition(this.position());
+    else this.startStream();
+  }
+
   /** Все каналы текущего плейлиста (для поиска) */
   allChannels(): Channel[] {
     const cat = this.catalog;
     if (!cat) return [];
+    // дубли качества в поиск не попадают
     const g = cat.group(ALL_KEY);
-    return g ? g.channels : cat.channels;
+    return g ? g.channels : cat.channels.filter(function (c) { return !c.primary; });
   }
 }
 

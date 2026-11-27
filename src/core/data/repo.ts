@@ -8,7 +8,7 @@ import { ChannelRecord, packChannels, unpackChannels, unpackProgramme } from './
 import { Db, prefixRange } from './db';
 import { errorCode, Loaders, MapRecord, SourceMeta, SRC_ERROR, SRC_READY, WantedSet } from './loaders';
 import { RawChannel } from './m3u';
-import { Channel, epgUrlsOf, Playlist, Programme } from './models';
+import { Channel, epgUrlsOf, Playlist, Programme, SOURCE_M3U } from './models';
 import { UserData } from './userdata';
 import { Names } from './names';
 
@@ -17,6 +17,9 @@ interface Chunk { s: string; list: Programme[]; loading: boolean; used: number }
 
 /** Прогресс загрузки программы для строки в гиде */
 export interface EpgProgress { url: string; read: number; total: number; programmes: number }
+
+/** Канал XMLTV для ручной привязки: источник, id, имя, иконка, оценка близости */
+export interface EpgCandidate { source: string; id: string; name: string; icon: string; score: number }
 
 /** Предел передач в памяти браузера (все куски вместе) */
 const PROG_MAX = 40000;
@@ -32,6 +35,8 @@ export class Repo {
   /** ключ канала → [источник, xml_id, иконка] по плейлистам; источники — по приоритету */
   private mapFor: { [pid: number]: { [key: string]: [string, string, string] } } = {};
   private mapLoading: { [pid: number]: boolean } = {};
+  /** Номер запроса сопоставления: старый ответ после ручной привязки не должен её затереть */
+  private mapRev: { [pid: number]: number } = {};
   /** «pid:ключ|сутки» → кусок */
   private chunks: { [k: string]: Chunk } = {};
   private loadingOf: { [ck: string]: number } = {};
@@ -48,6 +53,8 @@ export class Repo {
   progress: EpgProgress | null = null;
   /** Каналы всех загруженных плейлистов (для сопоставления с источниками) */
   private channelsOf: { [pid: number]: RawChannel[] } = {};
+  /** tvg-id с программой-заглушкой по плейлистам (для объединения каналов) */
+  private badEpg: { [pid: number]: { [id: string]: boolean } } = {};
   maxArchiveDays = 7;
 
   // ================================================================ плейлисты
@@ -67,7 +74,7 @@ export class Repo {
     return null;
   }
 
-  addPlaylist(name: string, url: string): Promise<Playlist> {
+  addPlaylist(name: string, url: string, source = SOURCE_M3U, username = '', password = '', output: 'm3u8' | 'ts' = 'm3u8'): Promise<Playlist> {
     const self = this;
     // Список в памяти может быть пуст или устареть (настройки/QR открыты до loadPlaylists,
     // чтение из резервного хранилища). Свободный id считаем и по самой базе: иначе Db.put
@@ -87,7 +94,10 @@ export class Repo {
         if (isFinite(pid)) id = Math.max(id, pid + 1);
         if (isFinite(ps)) sort = Math.max(sort, ps + 1);
       }
-      const p: Playlist = { id: id, name: name, url: url, epgMode: 0, userEpg: [], headerEpg: [], loadedAt: 0, channelsCount: 0, error: '', sort: sort };
+      const p: Playlist = {
+        id: id, name: name, url: url, source: source, username: username, password: password, output: output,
+        epgMode: 0, userEpg: [], headerEpg: [], loadedAt: 0, channelsCount: 0, error: '', sort: sort,
+      };
       self.playlistsCache.push(p);
       return Db.put('playlists', p).then(function () { return p; });
     });
@@ -118,10 +128,33 @@ export class Repo {
   /** Каналы плейлиста из базы → каталог */
   loadCatalog(p: Playlist): Promise<Catalog> {
     const self = this;
-    return Db.get<ChannelRecord>('channels', p.id).then(function (rec) {
+    return this.fakeEpgIds(p).then(function () {
+      return Db.get<ChannelRecord>('channels', p.id);
+    }).then(function (rec) {
       const raw = unpackChannels(rec);
       self.channelsOf[p.id] = raw;
       return self.catalogOf(p, raw);
+    });
+  }
+
+  /**
+   * tvg-id с программой-заглушкой по источникам плейлиста. Каталог собирается из M3U раньше
+   * программы, но fakeIds сохраняются с прошлой загрузки; после новой — Bus 'epgmeta' и пересборка.
+   */
+  private fakeEpgIds(p: Playlist): Promise<void> {
+    const self = this;
+    const urls = epgUrlsOf(p);
+    const one = function (u: string): Promise<SourceMeta | null> {
+      return Db.get<SourceMeta>('sources', u).then(function (r) { return r || null; }, function () { return null; });
+    };
+    return Promise.all(urls.map(one)).then(function (recs) {
+      const ids: { [id: string]: boolean } = {};
+      for (let i = 0; i < recs.length; i++) {
+        const r = recs[i];
+        if (!r || !r.fakeIds) continue;
+        for (let j = 0; j < r.fakeIds.length; j++) ids[r.fakeIds[j]] = true;
+      }
+      self.badEpg[p.id] = ids;
     });
   }
 
@@ -138,7 +171,7 @@ export class Repo {
     this.maxArchiveDays = Math.max(this.maxArchiveDays, maxDays);
     delete this.mapFor[p.id];
     this.loadMapping(p.id);
-    return new Catalog(p, list, function () { return str('favourites'); }, function () { return str('all_channels'); });
+    return new Catalog(p, list, function () { return str('favourites'); }, function () { return str('all_channels'); }, this.badEpg[p.id] || {});
   }
 
   /** Устарел ли плейлист (перекачать при запуске) */
@@ -221,6 +254,8 @@ export class Repo {
             self.progress = null;
             self.invalidate(url, true);
             Bus.emit('progress', null);
+            // могли измениться fakeIds — каталог пересобирает объединение
+            Bus.emit('epgmeta', null);
           }, function (err) {
             delete self.queued[url];
             self.progress = null;
@@ -258,6 +293,7 @@ export class Repo {
       const p = this.playlistsCache[i];
       if (epgUrlsOf(p).indexOf(url) < 0) continue;
       const raw = this.channelsOf[p.id] || [];
+      const manual = UserData.epgMap(p.id);
       const seen: { [k: string]: true } = {};
       const chs = [];
       for (let j = 0; j < raw.length; j++) {
@@ -265,7 +301,8 @@ export class Repo {
         const key = Names.key(r.name);
         if (seen[key]) continue;
         seen[key] = true;
-        chs.push({ key: key, tvgId: r.tvgId, tvgName: r.tvgName, name: r.name });
+        const m = manual[key];
+        chs.push({ key: key, tvgId: r.tvgId, tvgName: r.tvgName, name: r.name, epgId: m && m[0] === url ? m[1] : undefined });
       }
       out.push({ pid: p.id, channels: chs });
     }
@@ -293,20 +330,26 @@ export class Repo {
     const p = this.playlist(pid);
     if (!p) return;
     this.mapLoading[pid] = true;
+    const rev = (this.mapRev[pid] || 0) + 1;
+    this.mapRev[pid] = rev;
     const self = this;
     const urls = epgUrlsOf(p);
     Promise.all(urls.map(function (u) { return Db.get<MapRecord>('map', [pid, u]); })).then(function (recs) {
+      if (self.mapRev[pid] !== rev) return;
       const out: { [key: string]: [string, string, string] } = {};
       for (let i = 0; i < recs.length; i++) {
         const r = recs[i];
         if (!r) continue;
         for (const k in r.m) if (!out[k]) out[k] = [r.s, r.m[k][0], r.m[k][1]];
       }
+      // ручная привязка важнее автоматической
+      const manual = UserData.epgMap(pid);
+      for (const k in manual) out[k] = manual[k];
       self.mapFor[pid] = out;
       self.mapLoading[pid] = false;
       self.gen++;
       Bus.emit('epg', null);
-    }, function () { self.mapLoading[pid] = false; });
+    }, function () { if (self.mapRev[pid] === rev) self.mapLoading[pid] = false; });
   }
 
   private mapping(pid: number): { [key: string]: [string, string, string] } | null {
@@ -329,6 +372,85 @@ export class Repo {
   hasEpg(ch: Channel): boolean | null {
     const m = this.mapping(ch.playlistId);
     return m ? !!m[ch.key] : null;
+  }
+
+  /** Ручная привязка канала или null (автоматическая) */
+  manualEpg(ch: Channel): [string, string, string] | null {
+    return UserData.epgMap(ch.playlistId)[ch.key] || null;
+  }
+
+  /** Текущая привязка канала: [источник, id, иконка] или null */
+  epgMapping(ch: Channel): [string, string, string] | null {
+    const manual = this.manualEpg(ch);
+    if (manual) return manual;
+    const m = this.mapping(ch.playlistId);
+    return m ? m[ch.key] || null : null;
+  }
+
+  /** Ручная привязка канала к каналу XMLTV; пустые source/id — вернуть автоматическую */
+  setEpgMapping(ch: Channel, source: string, id: string, icon: string) {
+    const map = UserData.epgMap(ch.playlistId);
+    if (!source || !id) delete map[ch.key];
+    else map[ch.key] = [source, id, icon || ''];
+    UserData.saveEpgMap(ch.playlistId, map);
+    delete this.mapFor[ch.playlistId];
+    this.mapLoading[ch.playlistId] = false;
+    this.mapRev[ch.playlistId] = (this.mapRev[ch.playlistId] || 0) + 1;
+    this.clearChannel(ch);
+    ch.epgIcon = icon || '';
+    this.gen++;
+    Bus.emit('epg', null);
+  }
+
+  /** Выбросить программу канала: после смены привязки к XMLTV она уже не та */
+  private clearChannel(ch: Channel) {
+    const ck = ch.playlistId + ':' + ch.key;
+    const prefix = ck + '|';
+    for (const k in this.chunks) {
+      if (k.indexOf(prefix) !== 0) continue;
+      this.total -= this.chunks[k].list.length;
+      delete this.chunks[k];
+    }
+    delete this.dayIndex[ck];
+    this.rev[ck] = (this.rev[ck] || 0) + 1;
+  }
+
+  /**
+   * Каналы загруженной программы для ручной привязки: сначала те, что похожи по имени/tvg-id,
+   * затем остальные по алфавиту (не больше limit).
+   */
+  epgCandidates(ch: Channel, limit = 80): Promise<EpgCandidate[]> {
+    const p = this.playlist(ch.playlistId);
+    if (!p) return Promise.resolve([]);
+    const urls = epgUrlsOf(p);
+    const target = Names.matchKey(ch.name);
+    const tvgId = (ch.tvgId || '').toLowerCase();
+    return Promise.all(urls.map(function (u) {
+      return Db.all<any>('epgch', prefixRange([u])).then(function (rows) {
+        return rows.map(function (r) {
+          const names: string[] = Array.isArray(r.names) ? r.names : [];
+          let score = 9;
+          if (tvgId && String(r.id || '').toLowerCase() === tvgId) score = 0;
+          else if (target) {
+            for (let i = 0; i < names.length; i++) {
+              const k = Names.matchKey(names[i]);
+              if (k === target) { score = 1; break; }
+              if (k && (k.indexOf(target) >= 0 || target.indexOf(k) >= 0)) score = Math.min(score, 2);
+            }
+          }
+          return { source: u, id: String(r.id || ''), name: names[0] || String(r.id || ''), icon: r.icon || '', score: score };
+        });
+      });
+    })).then(function (parts) {
+      const list: EpgCandidate[] = [];
+      for (let i = 0; i < parts.length; i++) for (let j = 0; j < parts[i].length; j++) list.push(parts[i][j]);
+      list.sort(function (a, b) {
+        if (a.score !== b.score) return a.score - b.score;
+        const an = a.name.toLowerCase(), bn = b.name.toLowerCase();
+        return an < bn ? -1 : an > bn ? 1 : 0;
+      });
+      return list.slice(0, limit);
+    });
   }
 
   /**
@@ -370,7 +492,10 @@ export class Repo {
       for (let i = 0; i < made.length; i++) made[i].loading = false;
       self.loadingOf[ck]--;
       self.rev[ck] = (self.rev[ck] || 0) + 1;
-      self.total += n;
+      // канал сбросили (сменили привязку к программе) — его куски уже не в кэше
+      let alive = false;
+      for (const k in self.chunks) if (self.chunks[k] === made[0]) { alive = true; break; }
+      if (alive) self.total += n;
       if (self.total > PROG_MAX) self.evict();
       Bus.emit('epg', ch.key);
     }

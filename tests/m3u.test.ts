@@ -119,6 +119,28 @@ describe('M3U', () => {
     expect(Names.matchKey('НТВ')).toBe(Names.matchKey('HTB'));
     expect(Names.matchKey('Телеканал Звезда')).toBe(Names.matchKey('Звезда'));
     expect(Names.short('Россия 1')).toBe('россия1');
+    expect(Names.qualityBase('Первый HD')).toBe('Первый');
+    expect(Names.qualityBase('Первый (FHD)')).toBe('Первый');
+    expect(Names.qualityBase('Первый 1080p')).toBe('Первый');
+    expect(Names.qualityBase('Первый FULL HD')).toBe('Первый');
+    expect(Names.qualityBase('Первый HDR')).toBe('Первый');
+    expect(Names.qualityBase('Первый канал HD orig')).toBe('Первый канал');
+    expect(Names.qualityBase('Матч! HD orig')).toBe('Матч!');
+    expect(Names.qualityBase('Кино 2 ORG')).toBe('Кино 2');
+    expect(Names.qualityBase('Первый +1')).toBe('Первый +1');
+    expect(Names.groupBase('Матч! ТВ')).toBe(Names.groupBase('Матч! ТВ HD'));
+    expect(Names.groupBase('Матч! ТВ')).toBe(Names.groupBase('Матч! HD orig'));
+    expect(Names.groupBase('Кино 2')).toBe(Names.groupBase('Кино 2 ORG'));
+    expect(Names.groupBase('Кино 2')).not.toBe(Names.groupBase('Кино 3'));
+    expect(Names.groupBase('Первый канал')).toBe(Names.groupBase('Первый'));
+    expect(Names.qualityBase('HD')).toBe('');
+    expect(Names.groupCompare('Матч! ТВ')).toBe('матч');
+    expect(Names.groupCompare('NHL Network HD')).toBe('nhl network');
+    expect(Names.related(Names.groupCompare('NHL'), Names.groupCompare('NHL Network HD'))).toBe(true);
+    expect(Names.related(Names.groupCompare('Action IL'), Names.groupCompare('YES Action IL'))).toBe(true);
+    expect(Names.related(Names.groupCompare('Кино 2'), Names.groupCompare('Кино 20'))).toBe(false);
+    expect(Names.related(Names.groupCompare('Musicbox 80s'), Names.groupCompare('Musicbox 90s'))).toBe(false);
+    expect(Names.related(Names.groupCompare('Sky Sport Bundesliga 1 HD'), Names.groupCompare('Sky Sport Bundesliga 7 HD'))).toBe(false);
   });
 
   it('монограммы', () => {

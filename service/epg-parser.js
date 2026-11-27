@@ -229,6 +229,7 @@ var XmltvParser = (function () {
         this.lastLen = -1;
         this.lastId = "";
         this.lastWanted = false;
+        this.titles = {};
         this.resumeAt = -1;
         this.decoder = new TextDecoder("utf-8");
     }
@@ -539,7 +540,25 @@ var XmltvParser = (function () {
     };
     XmltvParser.prototype.emit = function (pr) {
         this.programmes++;
+        var t = this.titles[pr.channel];
+        if (!t)
+            this.titles[pr.channel] = { t: pr.title, n: 1, varied: false };
+        else {
+            t.n++;
+            if (t.t !== pr.title)
+                t.varied = true;
+        }
         this.onProgramme(pr);
+    };
+    XmltvParser.prototype.fakeIds = function (min) {
+        if (min === void 0) { min = 4; }
+        var out = [];
+        for (var id in this.titles) {
+            var t = this.titles[id];
+            if (t.n >= min && !t.varied)
+                out.push(id);
+        }
+        return out;
     };
     return XmltvParser;
 }());
@@ -572,6 +591,7 @@ var R_SIGNS = /([!\s.,()–-]+|ⓢ|ⓖ|ⓥ|ⓞ|Ⓢ|Ⓖ|Ⓥ|Ⓞ)/g;
 var R_KANAL = /\s(канал|тв)(\s.+|\s*)$/;
 var R_ORIG = /\s(50|orig|original)$/;
 var R_NUM = /\s(\d+)/g;
+var R_QUALITY = /(?:[\s._-]*[\[(]?(?:SD|HD|FHD|UHD|4K|8K|HEVC|HDR(?:10)?|H\.?265|H\.?264|AVC|FULL[\s._-]*HD|1080[PI]|720[PI]|576[PI]|480[PI]|2160[PI]|4320[PI]|ORIG|ORIGINAL|ORG)[\])]?)\s*$/i;
 var LETTER = /[0-9A-Za-zÀ-ɏͰ-ϿЀ-ӿ]/;
 var DIGIT = /[0-9]/;
 var Names = {
@@ -591,6 +611,36 @@ var Names = {
     },
     matchKey: function (name) {
         return Names.translit(Names.short(name));
+    },
+    groupCompare: function (name) {
+        return Names.short(Names.qualityBase(name)).replace(/\s+/g, " ").trim();
+    },
+    groupBase: function (name) {
+        return Names.key(Names.groupCompare(name));
+    },
+    related: function (a, b) {
+        if (a === b)
+            return true;
+        if (!a || !b)
+            return false;
+        var s = a.length <= b.length ? a : b;
+        var l = a.length <= b.length ? b : a;
+        if (l.length === s.length)
+            return false;
+        if (l.indexOf(s) === 0)
+            return l.charAt(s.length) === " ";
+        var at = l.length - s.length;
+        return l.lastIndexOf(s) === at && l.charAt(at - 1) === " ";
+    },
+    qualityBase: function (name) {
+        var s = name.trim();
+        for (var guard = 0; guard < 4; guard++) {
+            var n = s.replace(R_QUALITY, "").trim();
+            if (n === s)
+                break;
+            s = n;
+        }
+        return s;
     },
     monogram: function (name) {
         var sb = "";

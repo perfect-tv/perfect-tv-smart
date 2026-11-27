@@ -73,6 +73,8 @@ export const Prefs = {
   get lite() { return int('lite', bool('animations', true) ? 0 : 1, 0, 2); }, set lite(v: number) { put('lite', v); },
   get animations() { return Prefs.lite === 0; },
   get adaptiveSort() { return bool('adaptive_sort', false); }, set adaptiveSort(v: boolean) { put('adaptive_sort', v); },
+  /** Объединять SD/HD/FHD/4K и одинаковые имена в одну строку с выбором потока */
+  get groupQuality() { return bool('group_quality', true); }, set groupQuality(v: boolean) { put('group_quality', v); },
   /** Вид гида: 0 — ТВ-гид, 1 — Каналы + программа, 2 — Категории + каналы, 3 — Каналы */
   get guideMode() { return int('guide_mode', 0, 0, 3); }, set guideMode(v: number) { put('guide_mode', v); },
   get epgRefreshHours() { return int('epg_refresh', 12); }, set epgRefreshHours(v: number) { put('epg_refresh', v); },
@@ -98,6 +100,8 @@ export const Prefs = {
   get guideRender() { return int('guide_render', 0, 0, 1); }, set guideRender(v: number) { put('guide_render', v); },
   /** HLS: 0 — hls.js, 1 — native, 2 — auto (native эфир, hls.js архив). */
   get hlsEngine() { return int('hls_engine', platform().defaultHlsEngine, 0, 2); }, set hlsEngine(v: number) { put('hls_engine', v); },
+  /** Буфер HLS, секунды: больше — устойчивее на слабой сети, меньше — быстрее переключение */
+  get bufferSec() { return int('buffer_sec', 10, 2, 12); }, set bufferSec(v: number) { put('buffer_sec', v); },
 
   get lastPlaylist() { return int('last_playlist', 0); }, set lastPlaylist(v: number) { put('last_playlist', v); },
   lastChannel(playlistId: number): string { return str('last_channel_' + playlistId, ''); },

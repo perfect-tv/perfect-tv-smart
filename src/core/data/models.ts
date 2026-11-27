@@ -6,11 +6,25 @@ export const EPG_PLAYLIST = 0;
 export const EPG_BOTH = 1;
 export const EPG_USER_ONLY = 2;
 
+/** Тип источника: обычный M3U/M3U8, Xtream Codes (сервер, логин, пароль) или Stalker/MAG (портал, MAC) */
+export const SOURCE_M3U = 0;
+export const SOURCE_XTREAM = 1;
+export const SOURCE_STALKER = 2;
+
 /** Плейлист из настроек */
 export interface Playlist {
   id: number;
   name: string;
+  /** M3U: адрес плейлиста; Xtream: адрес сервера; Stalker: рабочий адрес API (portal.php/server/load.php) */
   url: string;
+  /** 0 — M3U, 1 — Xtream, 2 — Stalker/MAG; у старых записей поля нет */
+  source?: number;
+  /** Xtream: логин; Stalker: MAC-адрес */
+  username?: string;
+  /** Xtream: пароль */
+  password?: string;
+  /** Xtream: формат прямого потока — HLS (.m3u8) или MPEG-TS (.ts) */
+  output?: 'm3u8' | 'ts';
   epgMode: number;
   userEpg: string[];
   headerEpg: string[];
@@ -21,6 +35,9 @@ export interface Playlist {
   lastModified?: string;
   sort: number;
 }
+
+export function isXtream(p: Playlist): boolean { return (p.source || SOURCE_M3U) === SOURCE_XTREAM; }
+export function isStalker(p: Playlist): boolean { return (p.source || SOURCE_M3U) === SOURCE_STALKER; }
 
 /** Источники программы по приоритету с учётом режима */
 export function epgUrlsOf(p: Playlist): string[] {
@@ -48,21 +65,44 @@ export class Channel {
   tvgShift: number;
   catchupType: string | null;
   catchupSource: string;
+  /** Смещение сервера (минуты) для архива Xtream; null — часовой пояс телевизора */
+  catchupOffset: number | null;
   /** Глубина архива в днях (0 — архива нет) */
   archiveDays: number;
   userAgent: string;
   referrer: string;
   headersJson: string;
+  /** Stalker: команда канала для create_link (пусто — статический адрес или обычный канал) */
+  stalkerCmd = '';
+  stalkerPortal = '';
+  stalkerMac = '';
+  stalkerToken = '';
+  /** Stalker: когда получена временная ссылка (unix-сек); 0 — ещё не получена */
+  stalkerLinkAt = 0;
   /** Категория для навигации */
   groupKey: string;
   /** Логотип из программы (XMLTV) */
   epgIcon = '';
+  /** Дубли качества: у головного канала — остальные, у дубля — головной */
+  alts: Channel[] = [];
+  primary: Channel | null = null;
+  /** Выбранный поток: 0 — сам канал, 1… — alts[0]… */
+  altIndex = 0;
+
+  /** Имя и номер от провайдера — для сброса переименования/своего номера */
+  origName: string;
+  origNum: number;
+  /** Порядок в исходном плейлисте (для «Все каналы» и tie-break) */
+  index: number;
 
   constructor(id: number, playlistId: number, r: RawChannel, defaultDays: number) {
     this.id = id;
     this.playlistId = playlistId;
     this.num = r.num;
+    this.origNum = r.num;
+    this.index = id;
     this.key = Names.key(r.name);
+    this.origName = r.name;
     this.name = r.name;
     this.url = r.url;
     this.group = r.group;
@@ -72,14 +112,25 @@ export class Channel {
     this.tvgShift = r.tvgShift;
     this.catchupType = r.catchup ? r.catchup.type : null;
     this.catchupSource = r.catchup ? r.catchup.source : '';
+    this.catchupOffset = r.catchupOffset === undefined || r.catchupOffset === null ? null : r.catchupOffset;
     this.archiveDays = r.catchup ? (r.catchup.days > 0 ? r.catchup.days : defaultDays) : 0;
     this.userAgent = r.userAgent;
     this.referrer = r.referrer;
     this.headersJson = r.headersJson;
+    this.stalkerCmd = r.stalkerCmd || '';
+    this.stalkerPortal = r.stalkerPortal || '';
+    this.stalkerMac = r.stalkerMac || '';
+    this.stalkerToken = r.stalkerToken || '';
     this.groupKey = r.group;
   }
 
   get hasArchive() { return this.catchupType !== null; }
+
+  /** Источник воспроизведения: сам канал или выбранный дубль качества */
+  active(): Channel {
+    const a = this.alts[this.altIndex - 1];
+    return a || this;
+  }
 
   /** Адреса логотипа по приоритету (настройка «Приоритет логотипов»), без пустых и повторов */
   logoUrls(): string[] {

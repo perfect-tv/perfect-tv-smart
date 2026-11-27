@@ -5,8 +5,10 @@ import { packProgramme } from './compact';
 import { M3uParser, RawChannel, epgUrls } from './m3u';
 import { EpgMatcher } from './matcher';
 import { EpgWorker } from './epgworker';
-import { Playlist } from './models';
+import { Playlist, SOURCE_STALKER, SOURCE_XTREAM } from './models';
 import { Unpacker } from './streams';
+import { loadXtreamPlaylist } from './xtream';
+import { loadStalkerPlaylist } from './stalker';
 import { EpgChannelRaw, EpgProgramme, XmltvParser } from './xmltv';
 
 /** Уступить интерфейсу между кусками */
@@ -22,11 +24,20 @@ export interface SourceMeta {
   count: number;
   /** 0 — не загружался, 1 — загружается, 2 — готов, 3 — ошибка */
   status: number;
+  /** id, у которых вся программа — одна и та же передача (заглушка провайдера) */
+  fakeIds?: string[];
 }
 export const SRC_NONE = 0, SRC_LOADING = 1, SRC_READY = 2, SRC_ERROR = 3;
 
 /** Канал плейлиста для сопоставления с EPG */
-export interface Wanted { key: string; tvgId: string; tvgName: string; name: string }
+export interface Wanted {
+  key: string;
+  tvgId: string;
+  tvgName: string;
+  name: string;
+  /** Ручная привязка: id канала в этом XMLTV, matcher не используется */
+  epgId?: string;
+}
 export interface WantedSet { pid: number; channels: Wanted[] }
 
 /** Запись сопоставления: ключ канала → [xml_id, иконка] */
@@ -40,7 +51,11 @@ export interface EpgRequest {
 }
 /** Пачка для записи: каналы XMLTV, сжатые пачки передач (packProgramme), сопоставление */
 export interface EpgBatch { epgch: any[]; packs: any[]; maps: MapRecord[] }
-export interface EpgResult { notModified: boolean; etag: string; lastModified: string; total: number; channels: number; maps: MapRecord[] }
+export interface EpgResult {
+  notModified: boolean; etag: string; lastModified: string; total: number; channels: number; maps: MapRecord[];
+  /** id с программой-заглушкой (одно название на все передачи) */
+  fakeIds: string[];
+}
 
 export function isQuotaError(e: any): boolean {
   if (!e) return false;
@@ -62,6 +77,8 @@ export const Loaders = {
    * по окончании — одна запись в IndexedDB. Ошибки — код (no_url, network, http_404, format, empty, need_service).
    */
   loadPlaylist(p: Playlist, force: boolean, onPartial?: (list: RawChannel[], header: { [k: string]: string }) => void, onProgress?: (read: number, channels: number) => void): Promise<{ list: RawChannel[]; header: { [k: string]: string }; notModified: boolean }> {
+    if ((p.source || 0) === SOURCE_XTREAM) return loadXtreamPlaylist(p, onPartial, onProgress);
+    if ((p.source || 0) === SOURCE_STALKER) return loadStalkerPlaylist(p, onPartial, onProgress);
     if (!p.url) return Promise.reject(new NetError('no_url'));
     const list: RawChannel[] = [];
     const parser = new M3uParser(function (c) {
@@ -132,6 +149,7 @@ export const Loaders = {
         meta.error = '';
         return Db.put('sources', meta).then(function () { return Loaders.rematch(url, wanted); }).then(function () { return meta; });
       }
+      meta.fakeIds = r.fakeIds;
       // старые загрузки источника и всё, что вне окна хранения
       return Db.deleteWhere('prog', prefixRange([url]), function (v) { return v.l !== loadId; }).then(function () {
         return Promise.all(r.maps.map(function (m) { return Db.put('map', m); }));
@@ -143,7 +161,7 @@ export const Loaders = {
         meta.error = '';
         meta.count = r.total;
         meta.status = SRC_READY;
-        console.log('epg done', url, r.total, 'programmes', r.channels, 'channels');
+        console.log('epg done', url, r.total, 'programmes', r.channels, 'channels', r.fakeIds.length, 'fake ids');
         return Db.put('sources', meta);
       }).then(function () { return meta; });
     }).then(null, function (e) {
@@ -198,6 +216,7 @@ export const Loaders = {
         const chs = wanted[i].channels;
         for (let j = 0; j < chs.length; j++) {
           const c = chs[j];
+          if (c.epgId) { m[c.key] = [c.epgId, icons[c.epgId] || '']; want[c.epgId] = true; continue; }
           const x = matcher.match(c.tvgId, c.tvgName, c.name);
           if (x !== null) { m[c.key] = [x, icons[x] || '']; want[x] = true; }
         }
@@ -247,12 +266,12 @@ export const Loaders = {
       onProgress(read, size, total);
       return writePending(false);
     }).then(function (r) {
-      if (r.status === 304) return { notModified: true, etag: etag, lastModified: lm, total: 0, channels: 0, maps: [] };
+      if (r.status === 304) return { notModified: true, etag: etag, lastModified: lm, total: 0, channels: 0, maps: [], fakeIds: [] };
       unp.end();
       parser.end();
       if (!maps.length) rebuildWanted();
       return writePending(true).then(function () {
-        return { notModified: false, etag: etag, lastModified: lm, total: total, channels: parser.channels, maps: maps };
+        return { notModified: false, etag: etag, lastModified: lm, total: total, channels: parser.channels, maps: maps, fakeIds: parser.fakeIds() };
       });
     });
   },
@@ -273,6 +292,7 @@ export const Loaders = {
         const chs = wanted[i].channels;
         for (let j = 0; j < chs.length; j++) {
           const c = chs[j];
+          if (c.epgId) { m[c.key] = [c.epgId, icons[c.epgId] || '']; continue; }
           const x = matcher.match(c.tvgId, c.tvgName, c.name);
           if (x !== null) m[c.key] = [x, icons[x] || ''];
         }

@@ -68,6 +68,7 @@ server.listen(0,'127.0.0.1',async function(){
     var status=await wait(initial.jobId);
     assert.strictEqual(status.meta.status,2,JSON.stringify(status));
     assert.strictEqual(status.meta.count,60);
+    assert.deepStrictEqual(status.meta.fakeIds,[],'у tv1 все передачи разные');
     assert(status.revision>0);
     var maps=await call('get',{store:'map',key:[1,url]});
     assert.strictEqual(maps.record.value.m.channel_one[0],'tv1');
